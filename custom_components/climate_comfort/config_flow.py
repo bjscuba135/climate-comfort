@@ -221,7 +221,7 @@ class ClimateComfortConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema_fields: dict = {
             vol.Required(CONF_NAME): str,
             vol.Required(CONF_TEMPERATURE_SENSOR): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor")
+                selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
             ),
             vol.Optional(CONF_HUMIDITY_SENSOR): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="humidity")
@@ -681,7 +681,7 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
                 CONF_TEMPERATURE_SENSOR,
                 default=cfg[CONF_TEMPERATURE_SENSOR],
             ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor")
+                selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
             ),
             (vol.Optional(CONF_HUMIDITY_SENSOR, default=humidity_sensor)
              if humidity_sensor else vol.Optional(CONF_HUMIDITY_SENSOR)

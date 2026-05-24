@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from collections import defaultdict
 from datetime import timedelta
@@ -393,11 +394,14 @@ class ClimateComfortEntity(ClimateEntity):
                 continue
             checked.add(eid)
 
+            expected_on_by_entity = any(
+                d.is_active for d in self._devices if d.entity_id == eid
+            )
             actual_on = self._device_is_on(eid)
             last_touch = self._last_integration_touch.get(eid, 0.0)
             recently_touched = time.monotonic() - last_touch < self._OWN_CHANGE_WINDOW
 
-            if not recently_touched and actual_on != device.is_active:
+            if not recently_touched and actual_on != expected_on_by_entity:
                 self._trigger_manual_hold(eid)
 
     def _trigger_manual_hold(self, entity_id: str) -> None:
@@ -452,26 +456,38 @@ class ClimateComfortEntity(ClimateEntity):
             self._attr_current_temperature = None
             self._attr_available = False
             self.hass.async_create_task(self._turn_off_all())
-            self._attr_available = False
-            # Fail safe: stop all controlled devices when we lose temp data
-            self.hass.async_create_task(self._turn_off_all())
             return
 
         self._attr_available = True
         try:
-            self._attr_current_temperature = float(state.state)
+            temperature = float(state.state)
+            if not math.isfinite(temperature):
+                raise ValueError("temperature is not finite")
+            self._attr_current_temperature = temperature
         except (ValueError, TypeError):
             _LOGGER.warning(
-                "climate_comfort [%s]: bad temperature '%s' from %s",
+                "climate_comfort [%s]: bad temperature '%s' from %s — "
+                "turning off all devices and marking unavailable",
                 self._entry.data.get("name"), state.state, self._temp_sensor,
             )
             self._attr_current_temperature = None
+            self._attr_available = False
+            self.hass.async_create_task(self._turn_off_all())
 
     def _apply_humidity_state(self, state) -> None:
         try:
-            self._attr_current_humidity = float(state.state)
+            humidity = float(state.state)
+            if not math.isfinite(humidity):
+                raise ValueError("humidity is not finite")
+            self._attr_current_humidity = humidity
         except (ValueError, TypeError):
+            _LOGGER.warning(
+                "climate_comfort [%s]: bad humidity '%s' from %s — "
+                "turning off dehumidifiers",
+                self._entry.data.get("name"), state.state, self._humidity_sensor,
+            )
             self._attr_current_humidity = None
+            self.hass.async_create_task(self._turn_off_dehumidifiers())
 
     # ------------------------------------------------------------------
     # Extra state attributes
@@ -871,26 +887,43 @@ class ClimateComfortEntity(ClimateEntity):
     async def _turn_off_all(self) -> None:
         turned_off: set[str] = set()
         for device in self._devices:
-            if device.is_active:
-                if device.is_climate:
-                    if device.entity_id not in turned_off:
-                        await self._set_climate_off(device.entity_id)
-                        turned_off.add(device.entity_id)
-                else:
-                    await self.hass.services.async_call(
-                        "homeassistant", "turn_off",
-                        {"entity_id": device.entity_id},
-                        blocking=True,
-                    )
+            if device.entity_id in turned_off:
                 device.is_active = False
+                continue
+            if device.is_climate:
+                await self._set_climate_off(device.entity_id)
+            else:
+                self._mark_integration_touch(device.entity_id)
+                await self.hass.services.async_call(
+                    "homeassistant", "turn_off",
+                    {"entity_id": device.entity_id},
+                    blocking=True,
+                )
+            turned_off.add(device.entity_id)
+            device.is_active = False
         self._active_climate_stage.clear()
         self._sync_binary_sensors()
 
     async def _turn_off_dehumidifiers(self) -> None:
-        """Turn off active dehumidifier stages when humidity data is unavailable."""
+        """Turn off dehumidifier stages when humidity control is unavailable/disabled."""
+        turned_off: set[str] = set()
         for device in self._devices:
-            if device.role == ROLE_DEHUMIDIFY and device.is_active:
-                await self._deactivate_device(device)
+            if device.role != ROLE_DEHUMIDIFY:
+                continue
+            if device.entity_id in turned_off:
+                device.is_active = False
+                continue
+            if device.is_climate:
+                await self._set_climate_off(device.entity_id)
+            else:
+                self._mark_integration_touch(device.entity_id)
+                await self.hass.services.async_call(
+                    "homeassistant", "turn_off",
+                    {"entity_id": device.entity_id},
+                    blocking=True,
+                )
+            turned_off.add(device.entity_id)
+            device.is_active = False
         self._sync_binary_sensors()
 
     def _sync_binary_sensors(self) -> None:

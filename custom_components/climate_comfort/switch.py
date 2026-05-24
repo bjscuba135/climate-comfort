@@ -38,10 +38,14 @@ async def async_setup_entry(
 ) -> None:
     entities = []
 
-    # "Using Global Presets" toggle — always created for room entries
-    gp_switch = GlobalPresetsSwitch(entry)
-    hass.data[DOMAIN][entry.entry_id][_DATA_GLOBAL_PRESETS] = gp_switch
-    entities.append(gp_switch)
+    # "Using Global Presets" toggle — only useful when a Global Defaults entry exists.
+    if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_GLOBAL and any(
+        e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_GLOBAL
+        for e in hass.config_entries.async_entries(DOMAIN)
+    ):
+        gp_switch = GlobalPresetsSwitch(entry)
+        hass.data[DOMAIN][entry.entry_id][_DATA_GLOBAL_PRESETS] = gp_switch
+        entities.append(gp_switch)
 
     # Dehumidification toggle — only when at least one dehumidifier is configured
     devices = entry.options.get(CONF_DEVICES, [])
@@ -94,6 +98,10 @@ class GlobalPresetsSwitch(SwitchEntity):
     async def async_turn_on(self, **kwargs) -> None:
         """Enable global presets: copy global values, set flag, grey out numbers."""
         global_cfg = self._global_config()
+        if not global_cfg:
+            self._attr_is_on = False
+            self.async_write_ha_state()
+            return
         new_data = {**self._entry.data, CONF_USE_GLOBAL_PRESETS: True}
         for key in (CONF_PRESET_ECO, CONF_PRESET_COMFORT, CONF_PRESET_BOOST,
                     CONF_PRESET_AWAY_LOW, CONF_PRESET_AWAY_HIGH):
@@ -174,6 +182,10 @@ class DehumidifySwitch(SwitchEntity):
     async def async_turn_off(self, **kwargs) -> None:
         self._attr_is_on = False
         self._update_shared_state()
+        entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
+        climate = entry_data.get("climate_entity")
+        if climate:
+            await climate._turn_off_dehumidifiers()
         self.async_write_ha_state()
 
     def _update_shared_state(self) -> None:
