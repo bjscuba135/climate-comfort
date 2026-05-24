@@ -1,0 +1,12 @@
+{
+  "domain": "climate_comfort",
+  "name": "Climate Comfort",
+  "version": "1.0.0",
+  "config_flow": true,
+  "dependencies": [],
+  "codeowners": [],
+  "requirements": [],
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "min_homeassistant_version": "2024.1.0"
+}
