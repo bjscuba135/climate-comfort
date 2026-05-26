@@ -356,6 +356,45 @@ A good end-user dashboard for Climate Comfort should expose three layers clearly
 
 The integration already exposes useful entities and attributes for this without needing a bespoke frontend card. A ready-to-import example is also included at `examples/lovelace/climate-comfort-dashboard.yaml`.
 
+### Prototype custom card
+
+A first Conservatory-focused custom card prototype is included at:
+
+- `frontend/climate-comfort-card.js`
+
+It is a plain JavaScript Lovelace custom card with no build step. The intended deployment path is to publish the file in GitHub and add it to Home Assistant as a Lovelace resource, for example via jsDelivr:
+
+```text
+https://cdn.jsdelivr.net/gh/bjscuba135/climate-comfort@main/frontend/climate-comfort-card.js
+```
+
+Example configuration:
+
+```yaml
+- type: custom:climate-comfort-card
+  entity: climate.conservatory
+  aggressiveness_entity: select.conservatory_aggressiveness
+  triggers:
+    - entity: binary_sensor.conservatory_aircon_heat_10_degc
+      kind: heating
+      label: Aircon heat
+    - entity: binary_sensor.conservatory_radiator_5_degc
+      kind: heating
+      label: Radiator
+    - entity: binary_sensor.conservatory_aircon_fan_0_degc
+      kind: cooling
+      label: Aircon fan
+    - entity: binary_sensor.conservatory_aircon_cool_3_degc
+      kind: cooling
+      label: Aircon cool
+    - entity: binary_sensor.conservatory_fan_10_degc
+      kind: cooling
+      label: Extractor fan
+    - entity: binary_sensor.conservatory_aircon_dry_65
+      kind: humidity
+      label: Dry mode
+```
+
 ### Recommended layout
 
 - **Top row:** one thermostat card per important room

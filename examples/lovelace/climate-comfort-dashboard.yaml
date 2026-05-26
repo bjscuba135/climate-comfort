@@ -2,6 +2,40 @@ title: Climate Comfort
 path: climate-comfort
 icon: mdi:home-thermometer
 cards:
+  - type: custom:climate-comfort-card
+    entity: climate.conservatory
+    aggressiveness_entity: select.conservatory_aggressiveness
+    triggers:
+      - entity: binary_sensor.conservatory_aircon_heat_10_degc
+        kind: heating
+        label: Aircon heat
+      - entity: binary_sensor.conservatory_radiator_5_degc
+        kind: heating
+        label: Radiator
+      - entity: binary_sensor.conservatory_aircon_fan_0_degc
+        kind: cooling
+        label: Aircon fan
+      - entity: binary_sensor.conservatory_aircon_cool_3_degc
+        kind: cooling
+        label: Aircon cool
+      - entity: binary_sensor.conservatory_fan_10_degc
+        kind: cooling
+        label: Extractor fan
+      - entity: binary_sensor.conservatory_aircon_dry_65
+        kind: humidity
+        label: Dry mode
+
+  - type: entities
+    title: House Modes
+    show_header_toggle: false
+    entities:
+      - entity: select.global_settings_house_mode
+        name: House Mode
+      - entity: select.global_settings_downstairs_mode
+        name: Downstairs Mode
+      - entity: select.global_settings_upstairs_mode
+        name: Upstairs Mode
+
   - type: grid
     columns: 2
     square: false
@@ -13,67 +47,37 @@ cards:
           - type: climate-preset-modes
             style: dropdown
       - type: thermostat
-        entity: climate.bedroom
-        name: Bedroom
+        entity: climate.master_bedroom
+        name: Master Bedroom
         features:
           - type: climate-preset-modes
             style: dropdown
-
-  - type: entities
-    title: House Modes
-    show_header_toggle: false
-    entities:
-      - entity: select.global_settings_house_mode
-        name: House Mode
-      - entity: select.global_settings_ground_floor_mode
-        name: Ground Floor
-      - entity: select.global_settings_first_floor_mode
-        name: First Floor
 
   - type: grid
     columns: 2
     square: false
     cards:
       - type: entities
-        title: Lounge Tuning
+        title: Conservatory Tuning
         show_header_toggle: false
         entities:
-          - entity: select.lounge_aggressiveness
+          - entity: select.conservatory_aggressiveness
             name: Aggressiveness
-          - entity: number.lounge_comfort_zone
+          - entity: number.conservatory_comfort_zone
             name: Comfort Zone
-          - entity: number.lounge_mode_home
-            name: Home Temperature
-          - entity: number.lounge_mode_warmup
-            name: Comfort Temperature
-          - entity: number.lounge_mode_cooldown
-            name: Eco Temperature
-          - entity: switch.lounge_using_global_presets
-            name: Use Global Presets
+          - entity: number.conservatory_away_lower_limit
+            name: Away Lower Limit
+          - entity: number.conservatory_away_upper_limit
+            name: Away Upper Limit
       - type: entities
-        title: Bedroom Tuning
+        title: Conservatory Diagnostics
         show_header_toggle: false
         entities:
-          - entity: select.bedroom_aggressiveness
-            name: Aggressiveness
-          - entity: number.bedroom_comfort_zone
-            name: Comfort Zone
-          - entity: number.bedroom_mode_sleep
-            name: Sleep Temperature
-          - entity: number.bedroom_mode_home
-            name: Home Temperature
-          - entity: number.bedroom_mode_warmup
-            name: Comfort Temperature
-          - entity: switch.bedroom_using_global_presets
-            name: Use Global Presets
-
-  - type: entities
-    title: Lounge Diagnostics
-    show_header_toggle: false
-    entities:
-      - entity: climate.lounge
-        name: Lounge Thermostat
-        secondary_info: last-changed
-      - entity: binary_sensor.lounge_radiator
-      - entity: binary_sensor.lounge_aircon_cool
-      - entity: button.lounge_reset_to_automated_control
+          - type: attribute
+            entity: climate.conservatory
+            attribute: active_devices
+            name: Active Devices
+          - entity: binary_sensor.conservatory_radiator_5_degc
+          - entity: binary_sensor.conservatory_aircon_fan_0_degc
+          - entity: binary_sensor.conservatory_aircon_cool_3_degc
+          - entity: binary_sensor.conservatory_aircon_dry_65
