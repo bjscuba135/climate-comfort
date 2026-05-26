@@ -4,7 +4,7 @@ from homeassistant.core import HomeAssistant
 from .const import CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_GLOBAL, ENTRY_TYPE_ROOM
 
 # Platforms created for room thermostat entries
-PLATFORMS = ["climate", "binary_sensor", "number", "switch", "button"]
+PLATFORMS = ["climate", "binary_sensor", "number", "switch", "button", "select"]
 
 # Platforms created for the Global Defaults entry (mode selector lives here)
 GLOBAL_PLATFORMS = ["select"]

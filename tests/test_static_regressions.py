@@ -112,13 +112,21 @@ def test_global_defaults_options_are_split_into_sub_pages_with_mode_temperature_
 
 
 def test_room_aggressiveness_page_persists_room_profile_settings_and_climate_uses_them():
-    aggressiveness_body = _method_body(CONFIG_FLOW, "async def async_step_edit_room_aggressiveness", "# ── Step 1")
-    assert "_profile_fields(cfg)" in aggressiveness_body
-    assert "async_update_entry" in aggressiveness_body
+    aggressiveness_menu_body = _method_body(CONFIG_FLOW, "async def async_step_edit_room_aggressiveness", "async def async_step_edit_room_aggressiveness_default")
+    assert "async_show_menu" in aggressiveness_menu_body
+    assert "edit_room_aggressiveness_relaxed" in aggressiveness_menu_body
+    assert "edit_room_aggressiveness_aggressive" in aggressiveness_menu_body
+
+    relaxed_body = _method_body(CONFIG_FLOW, "async def async_step_edit_room_aggressiveness_relaxed", "async def async_step_edit_room_aggressiveness_balanced")
+    single_profile_helper = _method_body(CONFIG_FLOW, "def _single_profile_fields", "def _mode_schema")
+    assert '"relaxed"' in relaxed_body
+    assert "CONF_PROFILE_RELAXED_COMFORT_MULTIPLIER" in CONFIG_FLOW
+    assert "comfort_key" in single_profile_helper
+    assert "async_update_entry" in CONFIG_FLOW
     assert "edit_room_aggressiveness" in STRINGS["options"]["step"]["init"]["menu_options"]
-    assert "edit_room_aggressiveness" in STRINGS["options"]["step"]
+    assert "edit_room_aggressiveness_relaxed" in STRINGS["options"]["step"]
     assert "edit_room_aggressiveness" in TRANSLATIONS["options"]["step"]["init"]["menu_options"]
-    assert "edit_room_aggressiveness" in TRANSLATIONS["options"]["step"]
+    assert "edit_room_aggressiveness_relaxed" in TRANSLATIONS["options"]["step"]
 
     settings_body = _method_body(CONFIG_FLOW, "async def async_step_edit_settings", "# ── Save")
     assert "CONF_PROFILE_AGGRESSIVE_POINT_SPACING" not in settings_body
@@ -127,6 +135,31 @@ def test_room_aggressiveness_page_persists_room_profile_settings_and_climate_use
     profile_loop = _method_body(CLIMATE, "for profile, (comfort_key, spacing_key, comfort_default, spacing_default) in _PROFILE_CONFIG.items():", "self._mode_temps")
     assert "cfg.get(comfort_key" in profile_loop
     assert "cfg.get(spacing_key" in profile_loop
+
+
+def test_room_profile_select_allows_runtime_aggressiveness_override_independent_of_mode():
+    init_text = (REPOSITORY_ROOT / "__init__.py").read_text()
+    assert '"select"' in init_text.split("PLATFORMS =", 1)[1].split("]", 1)[0]
+    assert "class RoomAggressivenessSelect" in SELECT
+    assert "PROFILE_OVERRIDE_MODE_DEFAULT" in SELECT
+    assert "profile_override" in SELECT
+    assert "_profile_override" in CLIMATE
+    active_profile_body = _method_body(CLIMATE, "def _active_profile", "def _profile_comfort_multiplier")
+    assert "self._profile_override" in active_profile_body
+    assert "self._attr_preset_mode in self._mode_profiles" in active_profile_body
+
+
+def test_manual_override_requires_confirmed_persistent_mismatch_before_hold():
+    assert 'CONF_MANUAL_HOLD_CONFIRM_SECONDS = "manual_hold_confirm_seconds"' in CONST
+    assert "DEFAULT_MANUAL_HOLD_CONFIRM_SECONDS" in CONST
+    init_body = _method_body(CLIMATE, "# Manual hold tracking", "# True once the first evaluation")
+    assert "_manual_mismatch_seen" in init_body
+    check_body = _method_body(CLIMATE, "def _check_manual_changes", "def _trigger_manual_hold")
+    assert "_manual_hold_confirm_seconds" in check_body
+    assert "mismatch_for" in check_body
+    assert "continue" in check_body.split("mismatch_for", 1)[1]
+    settings_body = _method_body(CONFIG_FLOW, "async def async_step_edit_settings", "# ── Save")
+    assert "CONF_MANUAL_HOLD_CONFIRM_SECONDS" in settings_body
 
 
 def test_device_activation_points_are_role_limited_selects():

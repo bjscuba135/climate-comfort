@@ -181,14 +181,16 @@
           "humidity_sensor": "Humidity sensor",
           "comfort_zone": "Base comfort zone width",
           "house_mode_entity": "House / floor mode entity",
-          "manual_hold_hours": "Manual override hold period"
+          "manual_hold_hours": "Manual override hold period",
+          "manual_hold_confirm_seconds": "Manual override confirmation delay"
         },
         "data_description": {
           "temperature_sensor": "Drives all heating and cooling decisions for this room.",
           "humidity_sensor": "Optional. Required only if a dehumidify device is configured for this room.",
           "comfort_zone": "Base comfort zone width (±°C). The active profile scales this to create the effective comfort zone.",
           "house_mode_entity": "Optional. A select entity whose state chooses the active mode for this room. Valid modes are Away, Sleep, Home, Warmup, and Cooldown.",
-          "manual_hold_hours": "When any controlled device is changed manually or by another automation, automated control of that device is suspended for this many hours. 0 = disabled."
+          "manual_hold_hours": "When any controlled device is changed manually or by another automation, automated control of that device is suspended for this many hours. 0 = disabled.",
+          "manual_hold_confirm_seconds": "How long a device state mismatch must persist before it is treated as a manual override. Increase this if holds trigger too easily because devices report state slowly."
         }
       },
       "edit_global_defaults": {
@@ -241,28 +243,14 @@
       },
       "edit_global_profiles": {
         "title": "Global Defaults — Aggressiveness profiles",
-        "description": "Profiles control how quickly rooms react around the target temperature.",
-        "data": {
-          "default_profile": "Default aggressiveness",
-          "profile_relaxed_comfort_multiplier": "Relaxed comfort zone multiplier",
-          "profile_relaxed_point_spacing": "Relaxed activation point spacing",
-          "profile_balanced_comfort_multiplier": "Balanced comfort zone multiplier",
-          "profile_balanced_point_spacing": "Balanced activation point spacing",
-          "profile_responsive_comfort_multiplier": "Responsive comfort zone multiplier",
-          "profile_responsive_point_spacing": "Responsive activation point spacing",
-          "profile_aggressive_comfort_multiplier": "Aggressive comfort zone multiplier",
-          "profile_aggressive_point_spacing": "Aggressive activation point spacing"
-        },
-        "data_description": {
-          "default_profile": "Profile used when no house mode-specific profile applies.",
-          "profile_relaxed_comfort_multiplier": "Higher values widen the dead zone, so the room reacts less often.",
-          "profile_relaxed_point_spacing": "Temperature spacing between staged activation points.",
-          "profile_balanced_comfort_multiplier": "Baseline comfort-zone multiplier.",
-          "profile_balanced_point_spacing": "Baseline staged activation spacing.",
-          "profile_responsive_comfort_multiplier": "Lower values narrow the dead zone, so the room reacts sooner.",
-          "profile_responsive_point_spacing": "Smaller spacing brings staged devices on sooner.",
-          "profile_aggressive_comfort_multiplier": "Lowest comfort-zone multiplier for fastest reaction.",
-          "profile_aggressive_point_spacing": "Smallest staged activation spacing for fastest escalation."
+        "description": "Choose a profile group to edit.",
+        "menu_options": {
+          "edit_global_profiles_default": "Default profile",
+          "edit_global_profiles_relaxed": "Relaxed profile",
+          "edit_global_profiles_balanced": "Balanced profile",
+          "edit_global_profiles_responsive": "Responsive profile",
+          "edit_global_profiles_aggressive": "Aggressive profile",
+          "edit_global_defaults": "Back"
         }
       },
       "edit_global_floors": {
@@ -277,26 +265,128 @@
       },
       "edit_room_aggressiveness": {
         "title": "Room Aggressiveness",
-        "description": "Override the aggressiveness profile values for this room only.",
+        "description": "Choose a room-specific profile group to edit. Runtime profile can also be overridden from the room Aggressiveness select entity.",
+        "menu_options": {
+          "edit_room_aggressiveness_default": "Default profile",
+          "edit_room_aggressiveness_relaxed": "Relaxed profile",
+          "edit_room_aggressiveness_balanced": "Balanced profile",
+          "edit_room_aggressiveness_responsive": "Responsive profile",
+          "edit_room_aggressiveness_aggressive": "Aggressive profile",
+          "init": "Back"
+        }
+      },
+      "edit_global_profiles_default": {
+        "title": "Global Defaults — Default profile",
+        "description": "Edit only this profile group.",
         "data": {
-          "default_profile": "Default aggressiveness",
-          "profile_relaxed_comfort_multiplier": "Relaxed comfort zone multiplier",
-          "profile_relaxed_point_spacing": "Relaxed activation point spacing",
-          "profile_balanced_comfort_multiplier": "Balanced comfort zone multiplier",
-          "profile_balanced_point_spacing": "Balanced activation point spacing",
-          "profile_responsive_comfort_multiplier": "Responsive comfort zone multiplier",
-          "profile_responsive_point_spacing": "Responsive activation point spacing",
-          "profile_aggressive_comfort_multiplier": "Aggressive comfort zone multiplier",
-          "profile_aggressive_point_spacing": "Aggressive activation point spacing"
+          "default_profile": "Default aggressiveness"
         },
         "data_description": {
-          "default_profile": "Profile used when no house mode-specific profile applies.",
+          "default_profile": "Profile used when no runtime override is selected and no more specific fallback applies."
+        }
+      },
+      "edit_global_profiles_relaxed": {
+        "title": "Global Defaults — Relaxed profile",
+        "description": "Edit only this profile group.",
+        "data": {
+          "profile_relaxed_comfort_multiplier": "Comfort zone multiplier",
+          "profile_relaxed_point_spacing": "Activation point spacing"
+        },
+        "data_description": {
           "profile_relaxed_comfort_multiplier": "Higher values widen the dead zone, so the room reacts less often.",
-          "profile_relaxed_point_spacing": "Temperature spacing between staged activation points.",
+          "profile_relaxed_point_spacing": "Temperature spacing between staged activation points."
+        }
+      },
+      "edit_global_profiles_balanced": {
+        "title": "Global Defaults — Balanced profile",
+        "description": "Edit only this profile group.",
+        "data": {
+          "profile_balanced_comfort_multiplier": "Comfort zone multiplier",
+          "profile_balanced_point_spacing": "Activation point spacing"
+        },
+        "data_description": {
           "profile_balanced_comfort_multiplier": "Baseline comfort-zone multiplier.",
-          "profile_balanced_point_spacing": "Baseline staged activation spacing.",
+          "profile_balanced_point_spacing": "Baseline staged activation spacing."
+        }
+      },
+      "edit_global_profiles_responsive": {
+        "title": "Global Defaults — Responsive profile",
+        "description": "Edit only this profile group.",
+        "data": {
+          "profile_responsive_comfort_multiplier": "Comfort zone multiplier",
+          "profile_responsive_point_spacing": "Activation point spacing"
+        },
+        "data_description": {
           "profile_responsive_comfort_multiplier": "Lower values narrow the dead zone, so the room reacts sooner.",
-          "profile_responsive_point_spacing": "Smaller spacing brings staged devices on sooner.",
+          "profile_responsive_point_spacing": "Smaller spacing brings staged devices on sooner."
+        }
+      },
+      "edit_global_profiles_aggressive": {
+        "title": "Global Defaults — Aggressive profile",
+        "description": "Edit only this profile group.",
+        "data": {
+          "profile_aggressive_comfort_multiplier": "Comfort zone multiplier",
+          "profile_aggressive_point_spacing": "Activation point spacing"
+        },
+        "data_description": {
+          "profile_aggressive_comfort_multiplier": "Lowest comfort-zone multiplier for fastest reaction.",
+          "profile_aggressive_point_spacing": "Smallest staged activation spacing for fastest escalation."
+        }
+      },
+      "edit_room_aggressiveness_default": {
+        "title": "Room — Default profile",
+        "description": "Edit only this profile group.",
+        "data": {
+          "default_profile": "Default aggressiveness"
+        },
+        "data_description": {
+          "default_profile": "Profile used when no runtime override is selected and no more specific fallback applies."
+        }
+      },
+      "edit_room_aggressiveness_relaxed": {
+        "title": "Room — Relaxed profile",
+        "description": "Edit only this profile group.",
+        "data": {
+          "profile_relaxed_comfort_multiplier": "Comfort zone multiplier",
+          "profile_relaxed_point_spacing": "Activation point spacing"
+        },
+        "data_description": {
+          "profile_relaxed_comfort_multiplier": "Higher values widen the dead zone, so the room reacts less often.",
+          "profile_relaxed_point_spacing": "Temperature spacing between staged activation points."
+        }
+      },
+      "edit_room_aggressiveness_balanced": {
+        "title": "Room — Balanced profile",
+        "description": "Edit only this profile group.",
+        "data": {
+          "profile_balanced_comfort_multiplier": "Comfort zone multiplier",
+          "profile_balanced_point_spacing": "Activation point spacing"
+        },
+        "data_description": {
+          "profile_balanced_comfort_multiplier": "Baseline comfort-zone multiplier.",
+          "profile_balanced_point_spacing": "Baseline staged activation spacing."
+        }
+      },
+      "edit_room_aggressiveness_responsive": {
+        "title": "Room — Responsive profile",
+        "description": "Edit only this profile group.",
+        "data": {
+          "profile_responsive_comfort_multiplier": "Comfort zone multiplier",
+          "profile_responsive_point_spacing": "Activation point spacing"
+        },
+        "data_description": {
+          "profile_responsive_comfort_multiplier": "Lower values narrow the dead zone, so the room reacts sooner.",
+          "profile_responsive_point_spacing": "Smaller spacing brings staged devices on sooner."
+        }
+      },
+      "edit_room_aggressiveness_aggressive": {
+        "title": "Room — Aggressive profile",
+        "description": "Edit only this profile group.",
+        "data": {
+          "profile_aggressive_comfort_multiplier": "Comfort zone multiplier",
+          "profile_aggressive_point_spacing": "Activation point spacing"
+        },
+        "data_description": {
           "profile_aggressive_comfort_multiplier": "Lowest comfort-zone multiplier for fastest reaction.",
           "profile_aggressive_point_spacing": "Smallest staged activation spacing for fastest escalation."
         }

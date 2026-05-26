@@ -27,6 +27,7 @@ from .const import (
     CONF_HOUSE_MODE_ENTITY,
     CONF_HUMIDITY_SENSOR,
     CONF_MANUAL_HOLD_HOURS,
+    CONF_MANUAL_HOLD_CONFIRM_SECONDS,
     CONF_MAXIMUM_TEMPERATURE,
     CONF_MINIMUM_TEMPERATURE,
     CONF_MODE_AWAY,
@@ -74,6 +75,7 @@ from .const import (
     DEFAULT_PROFILE_RESPONSIVE_COMFORT_MULTIPLIER,
     DEFAULT_PROFILE_RESPONSIVE_POINT_SPACING,
     DEFAULT_MANUAL_HOLD_HOURS,
+    DEFAULT_MANUAL_HOLD_CONFIRM_SECONDS,
     DEFAULT_HUMIDITY_HYSTERESIS,
     DEFAULT_HUMIDITY_THRESHOLD,
     DOMAIN,
@@ -224,6 +226,22 @@ _PROFILE_CONFIG_FIELDS = {
         DEFAULT_PROFILE_AGGRESSIVE_POINT_SPACING,
     ),
 }
+
+
+def _profile_default_field(cfg: dict | None = None) -> dict:
+    cfg = cfg or {}
+    return {
+        vol.Required(CONF_DEFAULT_PROFILE, default=cfg.get(CONF_DEFAULT_PROFILE, DEFAULT_PROFILE)): _profile_selector(),
+    }
+
+
+def _single_profile_fields(profile: str, cfg: dict | None = None) -> dict:
+    cfg = cfg or {}
+    comfort_key, spacing_key, comfort_default, spacing_default = _PROFILE_CONFIG_FIELDS[profile]
+    return {
+        vol.Required(comfort_key, default=float(cfg.get(comfort_key, comfort_default))): _num(0.1, 3.0, step=0.1, unit="×", mode=selector.NumberSelectorMode.BOX),
+        vol.Required(spacing_key, default=float(cfg.get(spacing_key, spacing_default))): _num(0.1, 2.0, step=0.1, unit="°C", mode=selector.NumberSelectorMode.BOX),
+    }
 
 
 def _mode_schema(cfg: dict | None = None) -> vol.Schema:
@@ -496,15 +514,57 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def async_step_edit_global_profiles(self, user_input=None):
-        """Edit the global aggressiveness profile definitions."""
-        cfg = self._config_entry.data
-        if user_input is not None:
-            self.hass.config_entries.async_update_entry(self._config_entry, data={**cfg, **user_input})
-            return await self.async_step_edit_global_defaults()
-
-        return self.async_show_form(
+        """Menu for editing global aggressiveness profiles in grouped pages."""
+        return self.async_show_menu(
             step_id="edit_global_profiles",
-            data_schema=vol.Schema(_profile_fields(cfg)),
+            menu_options={
+                "edit_global_profiles_default": "Default profile",
+                "edit_global_profiles_relaxed": "Relaxed profile",
+                "edit_global_profiles_balanced": "Balanced profile",
+                "edit_global_profiles_responsive": "Responsive profile",
+                "edit_global_profiles_aggressive": "Aggressive profile",
+                "edit_global_defaults": "Back",
+            },
+        )
+
+    async def async_step_edit_global_profiles_default(self, user_input=None):
+        return await self._edit_profile_group(
+            "edit_global_profiles_default",
+            _profile_default_field,
+            self.async_step_edit_global_profiles,
+            user_input,
+        )
+
+    async def async_step_edit_global_profiles_relaxed(self, user_input=None):
+        return await self._edit_profile_group(
+            "edit_global_profiles_relaxed",
+            lambda cfg: _single_profile_fields("relaxed", cfg),
+            self.async_step_edit_global_profiles,
+            user_input,
+        )
+
+    async def async_step_edit_global_profiles_balanced(self, user_input=None):
+        return await self._edit_profile_group(
+            "edit_global_profiles_balanced",
+            lambda cfg: _single_profile_fields("balanced", cfg),
+            self.async_step_edit_global_profiles,
+            user_input,
+        )
+
+    async def async_step_edit_global_profiles_responsive(self, user_input=None):
+        return await self._edit_profile_group(
+            "edit_global_profiles_responsive",
+            lambda cfg: _single_profile_fields("responsive", cfg),
+            self.async_step_edit_global_profiles,
+            user_input,
+        )
+
+    async def async_step_edit_global_profiles_aggressive(self, user_input=None):
+        return await self._edit_profile_group(
+            "edit_global_profiles_aggressive",
+            lambda cfg: _single_profile_fields("aggressive", cfg),
+            self.async_step_edit_global_profiles,
+            user_input,
         )
 
     async def async_step_edit_global_floors(self, user_input=None):
@@ -532,26 +592,86 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
 
     # ── Room aggressiveness ─────────────────────────────────────────────────
     async def async_step_edit_room_aggressiveness(self, user_input=None):
-        """Edit per-room aggressiveness/profile settings."""
+        """Menu for editing per-room aggressiveness profile settings."""
+        return self.async_show_menu(
+            step_id="edit_room_aggressiveness",
+            menu_options={
+                "edit_room_aggressiveness_default": "Default profile",
+                "edit_room_aggressiveness_relaxed": "Relaxed profile",
+                "edit_room_aggressiveness_balanced": "Balanced profile",
+                "edit_room_aggressiveness_responsive": "Responsive profile",
+                "edit_room_aggressiveness_aggressive": "Aggressive profile",
+                "init": "Back",
+            },
+        )
+
+    async def async_step_edit_room_aggressiveness_default(self, user_input=None):
+        return await self._edit_profile_group(
+            "edit_room_aggressiveness_default",
+            _profile_default_field,
+            self.async_step_edit_room_aggressiveness,
+            user_input,
+            update_climate=True,
+        )
+
+    async def async_step_edit_room_aggressiveness_relaxed(self, user_input=None):
+        return await self._edit_profile_group(
+            "edit_room_aggressiveness_relaxed",
+            lambda cfg: _single_profile_fields("relaxed", cfg),
+            self.async_step_edit_room_aggressiveness,
+            user_input,
+            update_climate=True,
+        )
+
+    async def async_step_edit_room_aggressiveness_balanced(self, user_input=None):
+        return await self._edit_profile_group(
+            "edit_room_aggressiveness_balanced",
+            lambda cfg: _single_profile_fields("balanced", cfg),
+            self.async_step_edit_room_aggressiveness,
+            user_input,
+            update_climate=True,
+        )
+
+    async def async_step_edit_room_aggressiveness_responsive(self, user_input=None):
+        return await self._edit_profile_group(
+            "edit_room_aggressiveness_responsive",
+            lambda cfg: _single_profile_fields("responsive", cfg),
+            self.async_step_edit_room_aggressiveness,
+            user_input,
+            update_climate=True,
+        )
+
+    async def async_step_edit_room_aggressiveness_aggressive(self, user_input=None):
+        return await self._edit_profile_group(
+            "edit_room_aggressiveness_aggressive",
+            lambda cfg: _single_profile_fields("aggressive", cfg),
+            self.async_step_edit_room_aggressiveness,
+            user_input,
+            update_climate=True,
+        )
+
+    async def _edit_profile_group(self, step_id, field_factory, return_step, user_input=None, update_climate=False):
         cfg = self._config_entry.data
         if user_input is not None:
             new_data = {**cfg, **user_input}
             self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
-            entry_data = self.hass.data.get(DOMAIN, {}).get(self._config_entry.entry_id, {})
-            climate = entry_data.get("climate_entity")
-            if climate:
-                for profile, (comfort_key, spacing_key, comfort_default, spacing_default) in _PROFILE_CONFIG_FIELDS.items():
-                    climate._profile_settings[profile] = (
-                        float(new_data.get(comfort_key, comfort_default)),
-                        float(new_data.get(spacing_key, spacing_default)),
-                    )
-                self.hass.async_create_task(climate._evaluate_devices())
-                climate.async_write_ha_state()
-            return await self.async_step_init()
+            if update_climate:
+                entry_data = self.hass.data.get(DOMAIN, {}).get(self._config_entry.entry_id, {})
+                climate = entry_data.get("climate_entity")
+                if climate:
+                    for profile, (comfort_key, spacing_key, comfort_default, spacing_default) in _PROFILE_CONFIG_FIELDS.items():
+                        climate._profile_settings[profile] = (
+                            float(new_data.get(comfort_key, comfort_default)),
+                            float(new_data.get(spacing_key, spacing_default)),
+                        )
+                    climate._profile_override = entry_data.get("profile_override")
+                    self.hass.async_create_task(climate._evaluate_devices())
+                    climate.async_write_ha_state()
+            return await return_step()
 
         return self.async_show_form(
-            step_id="edit_room_aggressiveness",
-            data_schema=vol.Schema(_profile_fields(cfg)),
+            step_id=step_id,
+            data_schema=vol.Schema(field_factory(cfg)),
         )
 
     # ── Step 1: label / entity / role ────────────────────────────────────────
@@ -825,6 +945,10 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
                 CONF_MANUAL_HOLD_HOURS,
                 default=float(cfg.get(CONF_MANUAL_HOLD_HOURS, DEFAULT_MANUAL_HOLD_HOURS)),
             ): _num(0, 24, step=0.5, unit="h", mode=selector.NumberSelectorMode.SLIDER),
+            vol.Required(
+                CONF_MANUAL_HOLD_CONFIRM_SECONDS,
+                default=float(cfg.get(CONF_MANUAL_HOLD_CONFIRM_SECONDS, DEFAULT_MANUAL_HOLD_CONFIRM_SECONDS)),
+            ): _num(0, 300, step=5, unit="s", mode=selector.NumberSelectorMode.SLIDER),
         }
 
         placeholders = {

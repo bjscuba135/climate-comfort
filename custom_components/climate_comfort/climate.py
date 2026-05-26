@@ -68,6 +68,7 @@ from .const import (
     CONF_MODE_WARMUP,
     CONF_MODE_WARMUP_PROFILE,
     CONF_MANUAL_HOLD_HOURS,
+    CONF_MANUAL_HOLD_CONFIRM_SECONDS,
     CONF_TEMPERATURE_SENSOR,
     CONF_USE_GLOBAL_PRESETS,
     CONF_PROFILE_AGGRESSIVE_COMFORT_MULTIPLIER,
@@ -79,6 +80,7 @@ from .const import (
     CONF_PROFILE_RESPONSIVE_COMFORT_MULTIPLIER,
     CONF_PROFILE_RESPONSIVE_POINT_SPACING,
     DEFAULT_MANUAL_HOLD_HOURS,
+    DEFAULT_MANUAL_HOLD_CONFIRM_SECONDS,
     DEFAULT_MAX_TEMP,
     DEFAULT_MIN_TEMP,
     DEFAULT_MODE_AWAY,
@@ -347,6 +349,12 @@ class ClimateComfortEntity(ClimateEntity):
         self._hold_hours: float = float(
             cfg.get(CONF_MANUAL_HOLD_HOURS, DEFAULT_MANUAL_HOLD_HOURS)
         )
+        self._manual_hold_confirm_seconds: float = float(
+            cfg.get(CONF_MANUAL_HOLD_CONFIRM_SECONDS, DEFAULT_MANUAL_HOLD_CONFIRM_SECONDS)
+        )
+        # entity_id → first monotonic timestamp when a non-own mismatch was seen.
+        # A hold only starts if the same mismatch persists for the confirmation window.
+        self._manual_mismatch_seen: dict[str, float] = {}
         # entity_id → {"since": datetime, "user_id": str|None}
         self._manual_holds: dict[str, dict] = {}
         # True once the first evaluation has run and is_active flags are in sync.
@@ -359,6 +367,9 @@ class ClimateComfortEntity(ClimateEntity):
         self._last_integration_touch: dict[str, float] = {}
 
         self._attr_target_temperature: float = self._mode_temps[MODE_HOME]
+        self._profile_override: str | None = (
+            hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get("profile_override")
+        )
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -482,7 +493,18 @@ class ClimateComfortEntity(ClimateEntity):
             recently_touched = time.monotonic() - last_touch < self._OWN_CHANGE_WINDOW
 
             if not recently_touched and actual_on != expected_on_by_entity:
+                now = time.monotonic()
+                first_seen = self._manual_mismatch_seen.get(eid)
+                if first_seen is None:
+                    self._manual_mismatch_seen[eid] = now
+                    continue
+                mismatch_for = now - first_seen
+                if mismatch_for < self._manual_hold_confirm_seconds:
+                    continue
+                self._manual_mismatch_seen.pop(eid, None)
                 self._trigger_manual_hold(eid)
+            else:
+                self._manual_mismatch_seen.pop(eid, None)
 
     def _trigger_manual_hold(self, entity_id: str) -> None:
         """Record a manual hold and schedule automatic resume."""
@@ -740,6 +762,8 @@ class ClimateComfortEntity(ClimateEntity):
     # ------------------------------------------------------------------
 
     def _active_profile(self) -> str:
+        if self._profile_override:
+            return self._profile_override
         if self._attr_preset_mode in self._mode_profiles:
             return self._mode_profiles[self._attr_preset_mode]
         return str(self._entry.data.get(CONF_DEFAULT_PROFILE, DEFAULT_PROFILE))

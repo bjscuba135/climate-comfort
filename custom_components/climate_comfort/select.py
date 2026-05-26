@@ -9,12 +9,25 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import CONF_ENTRY_TYPE, CONF_FLOOR_NAMES, DOMAIN, ENTRY_TYPE_GLOBAL, MODE_OPTIONS, MODE_HOME
+from .const import (
+    CONF_ENTRY_TYPE,
+    CONF_FLOOR_NAMES,
+    DOMAIN,
+    ENTRY_TYPE_GLOBAL,
+    ENTRY_TYPE_ROOM,
+    MODE_HOME,
+    MODE_OPTIONS,
+    PROFILE_OPTIONS,
+)
 
 HOUSE_MODE_OPTIONS = MODE_OPTIONS
 _DEFAULT_MODE = MODE_HOME
 
+PROFILE_OVERRIDE_MODE_DEFAULT = "mode_default"
+PROFILE_OVERRIDE_OPTIONS = [PROFILE_OVERRIDE_MODE_DEFAULT, *PROFILE_OPTIONS]
+
 _DATA_FLOOR_SELECTS = "floor_selects"
+_DATA_PROFILE_OVERRIDE = "profile_override"
 
 
 async def async_setup_entry(
@@ -22,7 +35,13 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_GLOBAL:
+    entry_type = entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_ROOM)
+
+    if entry_type == ENTRY_TYPE_ROOM:
+        async_add_entities([RoomAggressivenessSelect(entry)], update_before_add=False)
+        return
+
+    if entry_type != ENTRY_TYPE_GLOBAL:
         return
 
     floor_selects: list[FloorModeSelect] = [
@@ -119,3 +138,51 @@ class FloorModeSelect(SelectEntity, RestoreEntity):
     async def async_select_option(self, option: str) -> None:
         self._attr_current_option = option
         self.async_write_ha_state()  # triggers rooms subscribed to this floor
+
+
+class RoomAggressivenessSelect(SelectEntity, RestoreEntity):
+    """Per-room runtime aggressiveness override.
+
+    The default option follows the aggressiveness profile assigned to the
+    active mode. Selecting a profile here overrides the mode-derived profile
+    for this room only until changed back.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Aggressiveness"
+    _attr_icon = "mdi:speedometer"
+    _attr_options = PROFILE_OVERRIDE_OPTIONS
+
+    def __init__(self, entry: ConfigEntry) -> None:
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_aggressiveness"
+        self._attr_current_option = PROFILE_OVERRIDE_MODE_DEFAULT
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name=entry.data.get("name"),
+            manufacturer="Climate Comfort",
+            model="Multi-Stage Thermostat",
+        )
+
+    async def async_added_to_hass(self) -> None:
+        if (last := await self.async_get_last_state()) and last.state in PROFILE_OVERRIDE_OPTIONS:
+            self._attr_current_option = last.state
+        self._apply_profile_override()
+        self.async_write_ha_state()
+
+    async def async_select_option(self, option: str) -> None:
+        if option not in PROFILE_OVERRIDE_OPTIONS:
+            return
+        self._attr_current_option = option
+        self._apply_profile_override()
+        self.async_write_ha_state()
+
+    def _apply_profile_override(self) -> None:
+        entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
+        override = None if self._attr_current_option == PROFILE_OVERRIDE_MODE_DEFAULT else self._attr_current_option
+        entry_data[_DATA_PROFILE_OVERRIDE] = override
+        climate = entry_data.get("climate_entity")
+        if climate:
+            climate._profile_override = override
+            self.hass.async_create_task(climate._evaluate_devices())
+            climate.async_write_ha_state()
