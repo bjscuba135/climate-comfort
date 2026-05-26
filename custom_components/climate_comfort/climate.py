@@ -454,6 +454,23 @@ class ClimateComfortEntity(ClimateEntity):
             return state.state not in ("off", "unavailable", "unknown")
         return state.state in ("on",)
 
+    def _device_target_hvac_mode(self, device: _Device) -> str:
+        """Return the HA HVAC mode this configured climate stage represents."""
+        if device.role == ROLE_DEHUMIDIFY:
+            return device.hvac_mode_on or "dry"
+        return device.hvac_mode_on or (
+            "heat" if device.role == ROLE_HEATING else "cool"
+        )
+
+    def _device_matches_actual(self, device: _Device) -> bool:
+        """Return True when the real entity state matches this specific stage."""
+        state = self.hass.states.get(device.entity_id)
+        if state is None:
+            return False
+        if device.is_climate:
+            return state.state == self._device_target_hvac_mode(device)
+        return state.state in ("on",)
+
     def _check_manual_changes(self) -> None:
         """
         Compare each device's expected state (is_active) against its actual
@@ -467,9 +484,12 @@ class ClimateComfortEntity(ClimateEntity):
         call of ours is treated as a manual override and starts a hold.
         """
         if not self._initial_sync_done:
-            # Startup sync: align is_active with reality, no holds triggered
+            # Startup sync: align each configured stage with its specific real
+            # state, no holds triggered.  For climate entities that appear as
+            # multiple stages (cool/fan_only/dry), do not mark every stage active
+            # just because the entity is not off; match the actual HVAC mode.
             for device in self._devices:
-                device.is_active = self._device_is_on(device.entity_id)
+                device.is_active = self._device_matches_actual(device)
             self._initial_sync_done = True
             return
 
@@ -910,12 +930,12 @@ class ClimateComfortEntity(ClimateEntity):
             # User can suspend dehumidification via the switch entity
             if not dehumidify_enabled:
                 if device.is_active:
-                    await self._deactivate_device(device)
+                    await self._deactivate_or_release_device(device)
                 continue
             # Optionally suppress dehumidification when heating/cooling is active
             if device.dehumidify_only_when_idle and (any_heating or any_cooling):
                 if device.is_active:
-                    await self._deactivate_device(device)
+                    await self._deactivate_or_release_device(device)
                 continue
 
             activate_at = device.humidity_threshold
@@ -923,7 +943,7 @@ class ClimateComfortEntity(ClimateEntity):
             if current_humidity >= activate_at and not device.is_active:
                 await self._activate_device(device)
             elif current_humidity <= deactivate_at and device.is_active:
-                await self._deactivate_device(device)
+                await self._deactivate_or_release_device(device)
 
         # ── Update HVAC action ────────────────────────────────────────────
         if any_heating:
@@ -982,6 +1002,34 @@ class ClimateComfortEntity(ClimateEntity):
                 device.label, device.entity_id, err,
             )
             device.is_active = False  # Roll back — retry on next evaluation
+
+    def _same_climate_has_active_temperature_stage(self, device: _Device) -> bool:
+        """Return True if this climate entity is already being used for heat/cool."""
+        if not device.is_climate:
+            return False
+        return any(
+            other is not device
+            and other.entity_id == device.entity_id
+            and other.role in (ROLE_HEATING, ROLE_COOLING)
+            and other.is_active
+            for other in self._devices
+        )
+
+    async def _deactivate_or_release_device(self, device: _Device) -> None:
+        """
+        Deactivate a stage unless another temp-control stage owns the same climate.
+
+        A physical aircon can be configured as cool/fan_only/dry stages against the
+        same climate entity.  When dry is suppressed because cooling is active, do
+        not call climate.set_hvac_mode(off), because that turns off the cooling
+        stage that just won the temperature-control decision.  Just mark the dry
+        stage inactive and let the owning heat/cool stage keep control.
+        """
+        if self._same_climate_has_active_temperature_stage(device):
+            device.is_active = False
+            self._sync_binary_sensors()
+            return
+        await self._deactivate_device(device)
 
     async def _deactivate_device(self, device: _Device) -> None:
         _LOGGER.info("climate_comfort: deactivating '%s' (%s)", device.label, device.entity_id)

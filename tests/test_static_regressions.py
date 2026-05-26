@@ -162,6 +162,28 @@ def test_manual_override_requires_confirmed_persistent_mismatch_before_hold():
     assert "CONF_MANUAL_HOLD_CONFIRM_SECONDS" in settings_body
 
 
+def test_climate_stage_startup_sync_matches_actual_hvac_mode_not_any_on_state():
+    startup_sync_body = _method_body(CLIMATE, "if not self._initial_sync_done:", "if self._hold_hours <= 0")
+    assert "_device_matches_actual(device)" in startup_sync_body
+    assert "device.is_active = self._device_is_on(device.entity_id)" not in startup_sync_body
+    assert "def _device_target_hvac_mode" in CLIMATE
+    assert "def _device_matches_actual" in CLIMATE
+    matches_body = _method_body(CLIMATE, "def _device_matches_actual", "def _check_manual_changes")
+    assert "state.state == self._device_target_hvac_mode(device)" in matches_body
+
+
+def test_dehumidifier_on_same_climate_entity_does_not_turn_off_active_cooling_stage():
+    dehumidifier_body = _method_body(CLIMATE, "# ── Evaluate dehumidifier devices", "# ── Update HVAC action")
+    assert "_deactivate_or_release_device(device)" in dehumidifier_body
+    assert "await self._deactivate_device(device)" not in dehumidifier_body
+    assert "def _same_climate_has_active_temperature_stage" in CLIMATE
+    assert "async def _deactivate_or_release_device" in CLIMATE
+    release_body = _method_body(CLIMATE, "async def _deactivate_or_release_device", "async def _deactivate_device")
+    assert "_same_climate_has_active_temperature_stage(device)" in release_body
+    assert "device.is_active = False" in release_body
+    assert "await self._deactivate_device(device)" in release_body
+
+
 def test_device_activation_points_are_role_limited_selects():
     body = _method_body(CONFIG_FLOW, "async def async_step_device_temp_config", "# ── Step 2b")
     assert "_activation_point_selector" in body
