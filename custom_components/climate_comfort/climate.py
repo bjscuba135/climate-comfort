@@ -25,6 +25,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
@@ -719,6 +720,8 @@ class ClimateComfortEntity(ClimateEntity):
     # ------------------------------------------------------------------
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        if hvac_mode not in self._attr_hvac_modes:
+            raise HomeAssistantError(f"Unsupported HVAC mode: {hvac_mode}")
         self._attr_hvac_mode = hvac_mode
         if hvac_mode == HVACMode.OFF:
             await self._turn_off_all()
@@ -745,6 +748,18 @@ class ClimateComfortEntity(ClimateEntity):
         self.async_write_ha_state()
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
+        requested_hvac_mode = kwargs.get("hvac_mode")
+        if requested_hvac_mode is not None:
+            try:
+                hvac_mode = HVACMode(requested_hvac_mode)
+            except ValueError as err:
+                raise HomeAssistantError(
+                    f"Unsupported HVAC mode: {requested_hvac_mode}"
+                ) from err
+            if hvac_mode not in self._attr_hvac_modes:
+                raise HomeAssistantError(f"Unsupported HVAC mode: {hvac_mode}")
+            self._attr_hvac_mode = hvac_mode
+
         lt = kwargs.get(ATTR_TARGET_TEMP_LOW)
         ut = kwargs.get(ATTR_TARGET_TEMP_HIGH)
         temp = kwargs.get(ATTR_TEMPERATURE)

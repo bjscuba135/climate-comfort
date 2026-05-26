@@ -186,6 +186,28 @@ def test_dehumidifier_on_same_climate_entity_does_not_turn_off_active_cooling_st
     assert "await self._deactivate_device(device)" in release_body
 
 
+def test_climate_entity_uses_home_assistant_hvac_modes_and_set_temperature_mode_arg():
+    assert "from homeassistant.exceptions import HomeAssistantError" in CLIMATE
+    assert "HVACMode.OFF" in CLIMATE
+    assert "HVACMode.HEAT" in CLIMATE
+    assert "HVACMode.COOL" in CLIMATE
+    assert "HVACMode.HEAT_COOL" in CLIMATE
+
+    hvac_mode_body = _method_body(CLIMATE, "async def async_set_hvac_mode", "async def async_set_preset_mode")
+    assert "if hvac_mode not in self._attr_hvac_modes" in hvac_mode_body
+    assert "raise HomeAssistantError" in hvac_mode_body
+
+    set_temperature_body = _method_body(
+        CLIMATE,
+        "async def async_set_temperature",
+        "# ------------------------------------------------------------------\n    # Core control logic",
+    )
+    assert 'requested_hvac_mode = kwargs.get("hvac_mode")' in set_temperature_body
+    assert "HVACMode(requested_hvac_mode)" in set_temperature_body
+    assert "if hvac_mode not in self._attr_hvac_modes" in set_temperature_body
+    assert "self._attr_hvac_mode = hvac_mode" in set_temperature_body
+
+
 def test_device_activation_points_are_role_limited_selects():
     body = _method_body(CONFIG_FLOW, "async def async_step_device_temp_config", "# ── Step 2b")
     assert "_activation_point_selector" in body
