@@ -1,0 +1,239 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Climate Comfort",
+        "description": "What would you like to set up?"
+      },
+      "room": {
+        "title": "Room Thermostat",
+        "description": "Create a multi-stage thermostat for one room. Devices are added after creation via the **Configure** button.",
+        "data": {
+          "name": "Room name",
+          "temperature_sensor": "Temperature sensor",
+          "humidity_sensor": "Humidity sensor",
+          "comfort_zone": "Comfort zone width",
+          "house_mode_entity": "House / floor mode entity",
+          "use_global_presets": "Use global preset temperatures"
+        },
+        "data_description": {
+          "temperature_sensor": "The sensor whose reading drives all heating and cooling decisions for this room.",
+          "humidity_sensor": "Optional. Only needed if you are adding a dehumidifier device to this room.",
+          "comfort_zone": "Half-width of the dead zone either side of the target temperature (±°C). No devices run while the room is inside this band.",
+          "house_mode_entity": "Optional. A select entity (comfort / eco / boost / away) that overrides the active preset for this room. The **House Mode** entity created by the Global Defaults entry works here.",
+          "use_global_presets": "When on, Eco / Comfort / Boost / Away temperatures are inherited from the Global Defaults entry and the preset step is skipped."
+        }
+      },
+      "presets": {
+        "title": "Preset Temperatures",
+        "description": "Set the target temperature for each preset mode.\n\n**Away** uses a protection band rather than a setpoint — nothing runs while the room is between Away Low and Away High.",
+        "data": {
+          "preset_eco": "Eco",
+          "preset_comfort": "Comfort",
+          "preset_boost": "Boost",
+          "preset_away_low": "Away — lower protection limit",
+          "preset_away_high": "Away — upper protection limit"
+        },
+        "data_description": {
+          "preset_eco": "Energy-saving setpoint.",
+          "preset_comfort": "Normal occupied setpoint.",
+          "preset_boost": "Maximum heating or cooling target.",
+          "preset_away_low": "**Heating** only activates if the room drops below this temperature.",
+          "preset_away_high": "**Cooling** only activates if the room exceeds this temperature."
+        }
+      },
+      "global_defaults": {
+        "title": "Global Defaults",
+        "description": "Default values used by all rooms that have **Use global preset temperatures** enabled.\n\nA **House Mode** selector is created automatically. Add floor names below to also create per-floor selectors.",
+        "data": {
+          "comfort_zone": "Default comfort zone width",
+          "preset_eco": "Eco",
+          "preset_comfort": "Comfort",
+          "preset_boost": "Boost",
+          "preset_away_low": "Away — lower protection limit",
+          "preset_away_high": "Away — upper protection limit",
+          "floor_names": "Floor / zone selectors"
+        },
+        "data_description": {
+          "comfort_zone": "Half-width of the dead zone (±°C). Applied as the starting value for new rooms.",
+          "preset_eco": "Energy-saving setpoint.",
+          "preset_comfort": "Normal occupied setpoint.",
+          "preset_boost": "Maximum heating or cooling target.",
+          "preset_away_low": "**Heating** only activates if the room drops below this when Away is active.",
+          "preset_away_high": "**Cooling** only activates if the room exceeds this when Away is active.",
+          "floor_names": "Each entry creates a mode selector on the Global Settings device (e.g. 'Ground Floor', 'First Floor'). Rooms choose which selector to follow via their house / floor mode entity setting. Existing HA floor names are offered as suggestions; you can also type custom names."
+        }
+      }
+    },
+    "abort": {
+      "legacy_domain": "This legacy Climate Comfort domain is kept only so existing manual installs can load. Add new Climate Comfort entries with the current integration instead.",
+      "global_already_configured": "Global defaults already exist — edit them via the Configure button.",
+      "already_configured": "A room with this name already exists. Use a different name or edit the existing room."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Manage Room",
+        "menu_options": {
+          "add_device": "Add a device",
+          "edit_device_select": "Edit a device",
+          "remove_device": "Remove a device",
+          "edit_settings": "Edit room settings",
+          "edit_room_presets": "Edit preset temperatures",
+          "finish": "Save & close"
+        }
+      },
+      "add_device": {
+        "title": "Add Device — Identity",
+        "data": {
+          "label": "Name",
+          "entity_id": "Entity",
+          "role": "Role"
+        },
+        "data_description": {
+          "label": "A short descriptive name shown on the device page, e.g. *Radiator*, *AirCon Fan*.",
+          "entity_id": "The switch, climate, or fan entity this controller will turn on and off.",
+          "role": "**Heating** — activates when the room is too cold.\n**Cooling** — activates when the room is too hot.\n**Dehumidifier** — activates based on humidity, independent of temperature."
+        }
+      },
+      "edit_device_select": {
+        "title": "Edit Device — Select",
+        "data": {
+          "device_to_edit": "Which device?"
+        }
+      },
+      "edit_device": {
+        "title": "Edit Device — Identity",
+        "data": {
+          "label": "Name",
+          "entity_id": "Entity",
+          "role": "Role"
+        },
+        "data_description": {
+          "label": "A short descriptive name shown on the device page.",
+          "entity_id": "The switch, climate, or fan entity this controller will turn on and off.",
+          "role": "**Heating** — activates when the room is too cold.\n**Cooling** — activates when the room is too hot.\n**Dehumidifier** — activates based on humidity, independent of temperature."
+        }
+      },
+      "device_temp_config": {
+        "title": "Device — Temperature Thresholds",
+        "data": {
+          "activate_offset": "Activate offset (°C)",
+          "deactivate_offset": "Hysteresis (°C)"
+        },
+        "data_description": {
+          "activate_offset": "How far beyond the comfort zone boundary before this device activates. **Heating devices** activate this many °C *below* the lower boundary. **Cooling devices** activate this many °C *above* the upper boundary. Set to 0 to activate exactly at the boundary.",
+          "deactivate_offset": "How far the temperature must recover past the activation point before this device turns off. Prevents rapid on/off cycling."
+        }
+      },
+      "device_humidity_config": {
+        "title": "Dehumidifier — Humidity Thresholds",
+        "data": {
+          "humidity_threshold": "Activate above (% RH)",
+          "humidity_hysteresis": "Deactivate hysteresis (% RH)",
+          "dehumidify_only_when_idle": "Only run when not heating or cooling"
+        },
+        "data_description": {
+          "humidity_threshold": "The relative humidity level at which this device switches on.",
+          "humidity_hysteresis": "Humidity must drop this many percent below the threshold before the device switches off.",
+          "dehumidify_only_when_idle": "When on, dehumidification is suppressed while heating or cooling is active."
+        }
+      },
+      "device_climate_mode": {
+        "title": "Climate Entity — Mode & Target",
+        "data": {
+          "hvac_mode_on": "HVAC mode when active",
+          "target_temp_offset": "Target overshoot (°C)"
+        },
+        "data_description": {
+          "hvac_mode_on": "**HVAC mode:** the mode set on this climate entity when the controller activates it. The list is populated from the device's own supported modes.",
+          "target_temp_offset": "**Target overshoot:** an optional offset to ensure the device actually runs rather than sitting idle because its previous setpoint was already satisfied. **Heating devices** target *setpoint + offset* °C. **Cooling devices** target *setpoint − offset* °C. Set to 0 to target exactly the room setpoint."
+        }
+      },
+      "remove_device": {
+        "title": "Remove Device",
+        "data": {
+          "device_to_remove": "Device to remove"
+        }
+      },
+      "edit_settings": {
+        "title": "Room Settings",
+        "description": "Sensor and zone settings for this room.",
+        "data": {
+          "temperature_sensor": "Temperature sensor",
+          "humidity_sensor": "Humidity sensor",
+          "comfort_zone": "Comfort zone width",
+          "house_mode_entity": "House / floor mode entity",
+          "use_global_presets": "Use global preset temperatures",
+          "manual_hold_hours": "Manual override hold period"
+        },
+        "data_description": {
+          "temperature_sensor": "**Temperature sensor:** drives all heating and cooling decisions for this room.",
+          "humidity_sensor": "**Humidity sensor:** optional. Required only if a dehumidifier device is configured for this room.",
+          "comfort_zone": "**Comfort zone width (±°C):** half-width of the dead zone either side of the target temperature. Nothing runs while the room is inside this band. For example, ±1 °C with a 21 °C setpoint creates a 20–22 °C dead zone.",
+          "house_mode_entity": "**House / floor mode entity:** optional. A select entity whose state (comfort / eco / boost / away) overrides the active preset for this room. The **House Mode** entity from the Global Defaults entry works here.",
+          "use_global_presets": "**Use global preset temperatures:** when on, Eco / Comfort / Boost / Away temperatures are inherited from the Global Defaults entry. Turning this off lets you set room-specific values.",
+          "manual_hold_hours": "**Manual override hold period:** when any controlled device is changed by someone other than this integration (manually, via an automation, or voice control), automated control of that device is suspended for this many hours. 0 = disabled — the integration always controls devices regardless of manual changes."
+        }
+      },
+      "edit_global_defaults": {
+        "title": "Global Defaults",
+        "description": "Shared preset temperatures used by all rooms that have **Use global preset temperatures** enabled.",
+        "data": {
+          "comfort_zone": "Default comfort zone width",
+          "preset_eco": "Eco temperature",
+          "preset_comfort": "Comfort temperature",
+          "preset_boost": "Boost temperature",
+          "preset_away_low": "Away — lower protection limit",
+          "preset_away_high": "Away — upper protection limit",
+          "floor_names": "Floor / zone selectors"
+        },
+        "data_description": {
+          "comfort_zone": "**Default comfort zone (±°C):** half-width of the dead zone. Applied as the starting value for new rooms.",
+          "preset_eco": "**Eco:** energy-saving setpoint.",
+          "preset_comfort": "**Comfort:** normal occupied setpoint.",
+          "preset_boost": "**Boost:** maximum heating or cooling target.",
+          "preset_away_low": "**Away lower limit:** heating only activates if the room drops below this.",
+          "preset_away_high": "**Away upper limit:** cooling only activates if the room exceeds this."
+        }
+      },
+      "edit_presets": {
+        "title": "Preset Temperatures",
+        "description": "**Away** uses a protection band — nothing runs while the room is between Away Low and Away High.",
+        "data": {
+          "preset_eco": "Eco temperature",
+          "preset_comfort": "Comfort temperature",
+          "preset_boost": "Boost temperature",
+          "preset_away_low": "Away — lower protection limit",
+          "preset_away_high": "Away — upper protection limit"
+        },
+        "data_description": {
+          "preset_eco": "**Eco:** energy-saving setpoint.",
+          "preset_comfort": "**Comfort:** normal occupied setpoint.",
+          "preset_boost": "**Boost:** maximum heating or cooling target.",
+          "preset_away_low": "**Heating** only activates if the room drops below this temperature.",
+          "preset_away_high": "**Cooling** only activates if the room exceeds this temperature."
+        }
+      },
+      "edit_room_presets": {
+        "title": "Room Preset Temperatures",
+        "description": "Set temperatures specific to this room. **Away** uses a protection band — nothing runs while the room is between Away Low and Away High.",
+        "data": {
+          "preset_eco": "Eco temperature",
+          "preset_comfort": "Comfort temperature",
+          "preset_boost": "Boost temperature",
+          "preset_away_low": "Away — lower protection limit",
+          "preset_away_high": "Away — upper protection limit"
+        },
+        "data_description": {
+          "preset_eco": "**Eco:** energy-saving setpoint.",
+          "preset_comfort": "**Comfort:** normal occupied setpoint.",
+          "preset_boost": "**Boost:** maximum heating or cooling target.",
+          "preset_away_low": "**Heating** only activates if the room drops below this temperature.",
+          "preset_away_high": "**Cooling** only activates if the room exceeds this temperature."
+        }
+      }
+    }
+  }
+}

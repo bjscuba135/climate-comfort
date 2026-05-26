@@ -132,3 +132,25 @@ def test_readme_documents_hacs_custom_repository_install_and_manual_migration():
     assert "https://github.com/bjscuba135/climate-comfort" in README
     assert "Custom repositories" in README
     assert "climate_comfort.old" in README
+    assert "comfort_climate" in README
+
+
+def test_legacy_comfort_climate_package_is_present_for_existing_config_entries():
+    legacy_root = ROOT / "custom_components/comfort_climate"
+    assert legacy_root.exists()
+    legacy_manifest = json.loads((legacy_root / "manifest.json").read_text())
+    assert legacy_manifest["domain"] == "comfort_climate"
+    assert legacy_manifest["name"] == "Climate Comfort (Legacy)"
+    assert legacy_manifest["version"] == MANIFEST["version"]
+    assert (legacy_root / "const.py").read_text().startswith('DOMAIN = "comfort_climate"')
+
+    for platform in ["binary_sensor", "button", "climate", "number", "select", "switch"]:
+        assert (legacy_root / f"{platform}.py").exists()
+
+
+def test_legacy_comfort_climate_config_flow_disables_new_legacy_entries_but_keeps_options_flow():
+    legacy_flow = (ROOT / "custom_components/comfort_climate/config_flow.py").read_text()
+    assert 'DOMAIN = "comfort_climate"' in (ROOT / "custom_components/comfort_climate/const.py").read_text()
+    assert "ConfigFlow, domain=DOMAIN" in legacy_flow
+    assert "ClimateComfortOptionsFlow" in legacy_flow
+    assert "legacy_domain" in legacy_flow

@@ -77,13 +77,14 @@ Climate Comfort can be installed with HACS as a custom repository until it is ac
 
 #### Updating from a manual install
 
-If you previously copied the integration over the local network, and it was installed as:
+If you previously copied the integration over the local network, and it was installed as either:
 
 ```text
 custom_components/climate_comfort
+custom_components/comfort_climate
 ```
 
-then the HACS install uses the same Home Assistant domain (`climate_comfort`) and should load your existing config entries and entity registry records.
+then the HACS package includes compatibility for both domains. New installs use the current Home Assistant domain (`climate_comfort`). Existing systems that still have config entries under the earlier `comfort_climate` domain can continue to boot while you migrate/recreate them under `climate_comfort` at a convenient time.
 
 Recommended safe migration:
 
