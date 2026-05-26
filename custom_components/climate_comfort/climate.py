@@ -1210,14 +1210,18 @@ class ClimateComfortEntity(ClimateEntity):
         entry_data["hold_hours"] = self._hold_hours
 
         for sensor in entry_data.get("device_sensors", []):
+            if sensor.hass is None:
+                continue
             # Update name so trigger temp stays current when setpoint changes
             sensor.update_trigger_name(lt, ut, self._profile_point_spacing())
             sensor.async_write_ha_state()
         for sensor in entry_data.get("room_sensors", []):
+            if sensor.hass is None:
+                continue
             sensor._refresh_value()
             sensor.async_write_ha_state()
         gp_switch = entry_data.get("global_presets_switch")
-        if gp_switch:
+        if gp_switch and gp_switch.hass is not None:
             gp_switch._attr_is_on = bool(
                 self._entry.data.get(CONF_USE_GLOBAL_PRESETS, False)
             )

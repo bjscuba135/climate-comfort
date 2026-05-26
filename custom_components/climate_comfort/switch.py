@@ -155,6 +155,8 @@ class GlobalPresetsSwitch(SwitchEntity):
 
     def _refresh_numbers(self, entry_data: dict) -> None:
         for num in entry_data.get("room_sensors", []):
+            if num.hass is None:
+                continue
             num._refresh_value()
             num.async_write_ha_state()
 

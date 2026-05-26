@@ -100,6 +100,7 @@ def test_preset_switching_and_number_refresh_use_cached_global_config_when_hass_
     state_change_body = _method_body(CLIMATE, "def _handle_state_change", "# How long after our last service call")
     number_setup_body = _method_body((REPOSITORY_ROOT / "number.py").read_text(), "async def async_setup_entry", "class RoomSettingNumber")
     number_global_body = _method_body((REPOSITORY_ROOT / "number.py").read_text(), "def _global_config", "def _refresh_value")
+    switch_refresh_body = _method_body(SWITCH, "def _refresh_numbers", "# ── Dehumidification")
     assert "def _restore_configured_comfort_zone" in CLIMATE
     assert "self._global_comfort_zone" in CLIMATE
     assert "self._local_comfort_zone" in CLIMATE
@@ -110,6 +111,8 @@ def test_preset_switching_and_number_refresh_use_cached_global_config_when_hass_
     assert "RoomSettingNumber(entry, global_cfg" in number_setup_body
     assert "if self.hass is not None:" in number_global_body
     assert "return self._global_cfg" in number_global_body
+    assert "if sensor.hass is None:" in CLIMATE
+    assert "if num.hass is None:" in switch_refresh_body
 
 
 def test_new_room_setup_requires_global_defaults_and_uses_modes_not_legacy_presets():
