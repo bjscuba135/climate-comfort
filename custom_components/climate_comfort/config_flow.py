@@ -261,7 +261,7 @@ def _mode_schema(cfg: dict | None = None) -> vol.Schema:
 
 
 def _activation_point_selector(role: str, default: int = 0) -> selector.SelectSelector:
-    choices = range(-5, 1) if role == ROLE_HEATING else range(0, 6)
+    choices = range(-20, 1) if role == ROLE_HEATING else range(0, 21)
     if default not in choices:
         default = 0
     return selector.SelectSelector(

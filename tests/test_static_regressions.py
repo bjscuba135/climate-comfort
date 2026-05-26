@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = ROOT / "custom_components/climate_comfort"
+INIT = (REPOSITORY_ROOT / "__init__.py").read_text()
 CLIMATE = (REPOSITORY_ROOT / "climate.py").read_text()
 SWITCH = (REPOSITORY_ROOT / "switch.py").read_text()
 BINARY_SENSOR = (REPOSITORY_ROOT / "binary_sensor.py").read_text()
@@ -189,13 +190,21 @@ def test_device_activation_points_are_role_limited_selects():
     body = _method_body(CONFIG_FLOW, "async def async_step_device_temp_config", "# ── Step 2b")
     assert "_activation_point_selector" in body
     assert "ROLE_HEATING" in body
-    assert "-5" in body and "0" in body and "5" in body
+    assert "range(-20, 1)" in CONFIG_FLOW and "range(0, 21)" in CONFIG_FLOW
     activation_field = body.split("CONF_DEVICE_ACTIVATION_POINT", 1)[1].split("CONF_DEVICE_DEACTIVATE_OFFSET", 1)[0]
     assert "_activation_point_selector" in activation_field
     assert "NumberSelector" not in activation_field
 
 
 def test_legacy_absolute_activation_offsets_are_not_scaled_by_aggressiveness_spacing():
+    assert "def _migrate_legacy_device_offsets" in INIT
+    assert "CONF_DEVICE_ACTIVATE_OFFSET" in INIT
+    assert "device.pop(CONF_DEVICE_ACTIVATE_OFFSET" in INIT
+    assert "CONF_DEVICE_ACTIVATION_POINT" in INIT
+    assert "CONF_PROFILE_BALANCED_POINT_SPACING" in INIT
+    assert "hass.config_entries.async_update_entry" in INIT
+    assert "_migrate_legacy_device_offsets(hass, entry)" in INIT
+
     device_init = _method_body(CLIMATE, "def __init__(self, data: dict) -> None:", "    @property\n    def is_climate")
     assert "self.activation_point = None" in device_init
     assert "old activate_offset was degrees beyond the boundary" in device_init
