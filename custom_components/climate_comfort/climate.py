@@ -129,7 +129,15 @@ _HVAC_MODE_MAP: dict[str, HVACMode] = {
     "cool": HVACMode.COOL,
 }
 
-_HOUSE_MODE_TO_PRESET: dict[str, str] = {mode: mode for mode in MODE_OPTIONS}
+_LEGACY_MODE_ALIASES: dict[str, str] = {
+    "warmup": MODE_WARMUP,
+    "cooldown": MODE_COOLDOWN,
+}
+
+_HOUSE_MODE_TO_PRESET: dict[str, str] = {
+    **_LEGACY_MODE_ALIASES,
+    **{mode: mode for mode in MODE_OPTIONS},
+}
 
 _PROFILE_CONFIG = {
     PROFILE_RELAXED: (

@@ -57,8 +57,10 @@ ROLE_DEHUMIDIFY = "dehumidify"
 MODE_AWAY = "away"
 MODE_SLEEP = "sleep"
 MODE_HOME = "home"
-MODE_WARMUP = "warmup"
-MODE_COOLDOWN = "cooldown"
+# Use Home Assistant's standard climate preset names so the frontend can show
+# built-in preset icons instead of the generic fallback bullet.
+MODE_WARMUP = "comfort"
+MODE_COOLDOWN = "eco"
 MODE_OPTIONS = [MODE_AWAY, MODE_SLEEP, MODE_HOME, MODE_WARMUP, MODE_COOLDOWN]
 
 PROFILE_RELAXED = "relaxed"

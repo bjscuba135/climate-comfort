@@ -37,8 +37,8 @@ _NUMBER_DEFS: list[tuple] = [
     ("mode_away",      "Away Temperature",     CONF_MODE_AWAY,       DEFAULT_MODE_AWAY,       "mdi:home-export-outline",  False, 5.0, 30.0, 0.1),
     ("mode_sleep",     "Sleep Temperature",    CONF_MODE_SLEEP,      DEFAULT_MODE_SLEEP,      "mdi:sleep",                False, 5.0, 30.0, 0.1),
     ("mode_home",      "Home Temperature",     CONF_MODE_HOME,       DEFAULT_MODE_HOME,       "mdi:sofa",                 False, 5.0, 30.0, 0.1),
-    ("mode_warmup",    "Warmup Temperature",   CONF_MODE_WARMUP,     DEFAULT_MODE_WARMUP,     "mdi:thermometer-chevron-up", False, 5.0, 30.0, 0.1),
-    ("mode_cooldown",  "Cooldown Temperature", CONF_MODE_COOLDOWN,   DEFAULT_MODE_COOLDOWN,   "mdi:thermometer-chevron-down", False, 5.0, 30.0, 0.1),
+    ("mode_warmup",    "Comfort Temperature",  CONF_MODE_WARMUP,     DEFAULT_MODE_WARMUP,     "mdi:sofa",                 False, 5.0, 30.0, 0.1),
+    ("mode_cooldown",  "Eco Temperature",      CONF_MODE_COOLDOWN,   DEFAULT_MODE_COOLDOWN,   "mdi:leaf",                 False, 5.0, 30.0, 0.1),
 ]
 
 # Map config keys to climate entity attribute names for live in-memory updates

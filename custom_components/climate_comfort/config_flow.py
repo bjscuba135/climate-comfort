@@ -955,8 +955,8 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
             "global_summary": (
                 f"Modes and profiles are inherited from Global Defaults. "
                 f"Home {global_cfg.get(CONF_MODE_HOME, '?')} °C · "
-                f"Warmup {global_cfg.get(CONF_MODE_WARMUP, '?')} °C · "
-                f"Cooldown {global_cfg.get(CONF_MODE_COOLDOWN, '?')} °C"
+                f"Comfort {global_cfg.get(CONF_MODE_WARMUP, '?')} °C · "
+                f"Eco {global_cfg.get(CONF_MODE_COOLDOWN, '?')} °C"
             )
         } if global_cfg else None
 

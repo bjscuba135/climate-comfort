@@ -15,13 +15,19 @@ from .const import (
     DOMAIN,
     ENTRY_TYPE_GLOBAL,
     ENTRY_TYPE_ROOM,
+    MODE_COOLDOWN,
     MODE_HOME,
     MODE_OPTIONS,
+    MODE_WARMUP,
     PROFILE_OPTIONS,
 )
 
 HOUSE_MODE_OPTIONS = MODE_OPTIONS
 _DEFAULT_MODE = MODE_HOME
+_LEGACY_MODE_ALIASES = {
+    "warmup": MODE_WARMUP,
+    "cooldown": MODE_COOLDOWN,
+}
 
 PROFILE_OVERRIDE_MODE_DEFAULT = "mode_default"
 PROFILE_OVERRIDE_OPTIONS = [PROFILE_OVERRIDE_MODE_DEFAULT, *PROFILE_OPTIONS]
@@ -84,8 +90,10 @@ class HouseModeSelect(SelectEntity, RestoreEntity):
         )
 
     async def async_added_to_hass(self) -> None:
-        if (last := await self.async_get_last_state()) and last.state in HOUSE_MODE_OPTIONS:
-            self._attr_current_option = last.state
+        if last := await self.async_get_last_state():
+            restored = _LEGACY_MODE_ALIASES.get(last.state, last.state)
+            if restored in HOUSE_MODE_OPTIONS:
+                self._attr_current_option = restored
         self.async_write_ha_state()
 
     async def async_select_option(self, option: str) -> None:
@@ -97,6 +105,8 @@ class HouseModeSelect(SelectEntity, RestoreEntity):
                      → each FloorModeSelect.async_select_option()
                          → (state change → rooms tagged with that floor)
         """
+        if option not in HOUSE_MODE_OPTIONS:
+            return
         self._attr_current_option = option
         self.async_write_ha_state()  # triggers rooms subscribed directly to House Mode
 
@@ -131,11 +141,15 @@ class FloorModeSelect(SelectEntity, RestoreEntity):
         )
 
     async def async_added_to_hass(self) -> None:
-        if (last := await self.async_get_last_state()) and last.state in HOUSE_MODE_OPTIONS:
-            self._attr_current_option = last.state
+        if last := await self.async_get_last_state():
+            restored = _LEGACY_MODE_ALIASES.get(last.state, last.state)
+            if restored in HOUSE_MODE_OPTIONS:
+                self._attr_current_option = restored
         self.async_write_ha_state()
 
     async def async_select_option(self, option: str) -> None:
+        if option not in HOUSE_MODE_OPTIONS:
+            return
         self._attr_current_option = option
         self.async_write_ha_state()  # triggers rooms subscribed to this floor
 

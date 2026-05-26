@@ -19,8 +19,8 @@
         "data_description": {
           "temperature_sensor": "The sensor whose reading drives all heating and cooling decisions for this room.",
           "humidity_sensor": "Optional. Only needed if you are adding a dehumidifier device to this room.",
-          "comfort_zone": "Base half-width of the dead zone either side of the mode target temperature (±°C). The active profile scales this into the effective comfort zone.",
-          "house_mode_entity": "Optional. A select entity whose state chooses the active mode for this room. Valid modes are Away, Sleep, Home, Warmup, and Cooldown. The House Mode entity created by the Global Defaults entry works here.",
+          "comfort_zone": "Base half-width of the dead zone either side of the mode target temperature (\u00b1\u00b0C). The active profile scales this into the effective comfort zone.",
+          "house_mode_entity": "Optional. A select entity whose state chooses the active mode for this room. Valid presets are Away, Sleep, Home, Comfort, and Eco. The House Mode entity created by the Global Defaults entry works here.",
           "manual_hold_hours": "When any controlled device is changed by someone other than this integration, automated control of that device is suspended for this many hours. 0 = disabled."
         }
       },
@@ -38,10 +38,10 @@
           "mode_sleep_profile": "Sleep mode profile",
           "mode_home": "Home mode temperature",
           "mode_home_profile": "Home mode profile",
-          "mode_warmup": "Warmup mode temperature",
-          "mode_warmup_profile": "Warmup mode profile",
-          "mode_cooldown": "Cooldown mode temperature",
-          "mode_cooldown_profile": "Cooldown mode profile",
+          "mode_warmup": "Comfort mode temperature",
+          "mode_warmup_profile": "Comfort mode profile",
+          "mode_cooldown": "Eco mode temperature",
+          "mode_cooldown_profile": "Eco mode profile",
           "profile_relaxed_comfort_multiplier": "Relaxed comfort multiplier",
           "profile_relaxed_point_spacing": "Relaxed point spacing",
           "profile_balanced_comfort_multiplier": "Balanced comfort multiplier",
@@ -53,34 +53,34 @@
           "floor_names": "Floor / zone selectors"
         },
         "data_description": {
-          "comfort_zone": "Base half-width of the dead zone (±°C). New rooms start with this value; the active profile scales it.",
+          "comfort_zone": "Base half-width of the dead zone (\u00b1\u00b0C). New rooms start with this value; the active profile scales it.",
           "default_profile": "Fallback response profile used when a mode does not specify one.",
           "minimum_temperature": "Global lower safety limit. If a room falls below this, emergency-enabled heating devices may activate regardless of normal staging.",
           "maximum_temperature": "Global upper safety limit. If a room rises above this, emergency-enabled cooling devices may activate regardless of normal staging.",
           "mode_away": "Saved target temperature for Away mode.",
           "mode_sleep": "Saved target temperature for Sleep mode.",
           "mode_home": "Saved target temperature for Home mode.",
-          "mode_warmup": "Saved target temperature for Warmup mode.",
-          "mode_cooldown": "Saved target temperature for Cooldown mode.",
+          "mode_warmup": "Saved target temperature for Comfort preset.",
+          "mode_cooldown": "Saved target temperature for Eco preset.",
           "mode_away_profile": "Response profile to use in Away mode.",
           "mode_sleep_profile": "Response profile to use in Sleep mode.",
           "mode_home_profile": "Response profile to use in Home mode.",
-          "mode_warmup_profile": "Response profile to use in Warmup mode.",
-          "mode_cooldown_profile": "Response profile to use in Cooldown mode.",
+          "mode_warmup_profile": "Response profile to use in Comfort preset.",
+          "mode_cooldown_profile": "Response profile to use in Eco preset.",
           "profile_relaxed_comfort_multiplier": "Scales the base comfort zone for the Relaxed profile. Higher values allow more drift.",
-          "profile_relaxed_point_spacing": "How many °C each device activation point represents in the Relaxed profile.",
+          "profile_relaxed_point_spacing": "How many \u00b0C each device activation point represents in the Relaxed profile.",
           "profile_balanced_comfort_multiplier": "Scales the base comfort zone for the Balanced profile.",
-          "profile_balanced_point_spacing": "How many °C each device activation point represents in the Balanced profile.",
+          "profile_balanced_point_spacing": "How many \u00b0C each device activation point represents in the Balanced profile.",
           "profile_responsive_comfort_multiplier": "Scales the base comfort zone for the Responsive profile. Lower values hold the room closer to target.",
-          "profile_responsive_point_spacing": "How many °C each device activation point represents in the Responsive profile.",
+          "profile_responsive_point_spacing": "How many \u00b0C each device activation point represents in the Responsive profile.",
           "profile_aggressive_comfort_multiplier": "Scales the base comfort zone for the Aggressive profile. Lower values make the system respond sooner.",
-          "profile_aggressive_point_spacing": "How many °C each device activation point represents in the Aggressive profile. Lower values make stages closer together.",
+          "profile_aggressive_point_spacing": "How many \u00b0C each device activation point represents in the Aggressive profile. Lower values make stages closer together.",
           "floor_names": "Each entry creates a mode selector on the Global Settings device, such as Ground Floor or First Floor. Rooms choose which selector to follow via their house / floor mode entity setting."
         }
       }
     },
     "abort": {
-      "global_already_configured": "Global defaults already exist — edit them via the Configure button.",
+      "global_already_configured": "Global defaults already exist \u2014 edit them via the Configure button.",
       "global_defaults_required": "Create Global Defaults before adding rooms. Modes, profiles, and safety limits are required shared setup.",
       "already_configured": "A room with this name already exists. Use a different name or edit the existing room."
     }
@@ -99,7 +99,7 @@
         }
       },
       "add_device": {
-        "title": "Add Device — Identity",
+        "title": "Add Device \u2014 Identity",
         "data": {
           "label": "Name",
           "entity_id": "Entity",
@@ -112,13 +112,13 @@
         }
       },
       "edit_device_select": {
-        "title": "Edit Device — Select",
+        "title": "Edit Device \u2014 Select",
         "data": {
           "device_to_edit": "Which device?"
         }
       },
       "edit_device": {
-        "title": "Edit Device — Identity",
+        "title": "Edit Device \u2014 Identity",
         "data": {
           "label": "Name",
           "entity_id": "Entity",
@@ -131,10 +131,10 @@
         }
       },
       "device_temp_config": {
-        "title": "Device — Temperature Activation",
+        "title": "Device \u2014 Temperature Activation",
         "data": {
           "activation_point": "Activation point",
-          "deactivate_offset": "Hysteresis (°C)",
+          "deactivate_offset": "Hysteresis (\u00b0C)",
           "emergency_enabled": "Use for emergency safety limits"
         },
         "data_description": {
@@ -144,7 +144,7 @@
         }
       },
       "device_humidity_config": {
-        "title": "Dehumidify — Humidity Thresholds",
+        "title": "Dehumidify \u2014 Humidity Thresholds",
         "data": {
           "humidity_threshold": "Activate above (% RH)",
           "humidity_hysteresis": "Deactivate hysteresis (% RH)",
@@ -157,14 +157,14 @@
         }
       },
       "device_climate_mode": {
-        "title": "Climate Entity — Mode & Target",
+        "title": "Climate Entity \u2014 Mode & Target",
         "data": {
           "hvac_mode_on": "HVAC mode when active",
-          "target_temp_offset": "Target overshoot (°C)"
+          "target_temp_offset": "Target overshoot (\u00b0C)"
         },
         "data_description": {
           "hvac_mode_on": "The mode set on this climate entity when the controller activates it. The list is populated from the device's own supported modes.",
-          "target_temp_offset": "Optional offset to ensure the device actually runs rather than sitting idle because its previous setpoint was already satisfied. Heating devices target setpoint + offset. Cooling devices target setpoint − offset. Set to 0 to target exactly the room setpoint."
+          "target_temp_offset": "Optional offset to ensure the device actually runs rather than sitting idle because its previous setpoint was already satisfied. Heating devices target setpoint + offset. Cooling devices target setpoint \u2212 offset. Set to 0 to target exactly the room setpoint."
         }
       },
       "remove_device": {
@@ -187,8 +187,8 @@
         "data_description": {
           "temperature_sensor": "Drives all heating and cooling decisions for this room.",
           "humidity_sensor": "Optional. Required only if a dehumidify device is configured for this room.",
-          "comfort_zone": "Base comfort zone width (±°C). The active profile scales this to create the effective comfort zone.",
-          "house_mode_entity": "Optional. A select entity whose state chooses the active mode for this room. Valid modes are Away, Sleep, Home, Warmup, and Cooldown.",
+          "comfort_zone": "Base comfort zone width (\u00b1\u00b0C). The active profile scales this to create the effective comfort zone.",
+          "house_mode_entity": "Optional. A select entity whose state chooses the active mode for this room. Valid presets are Away, Sleep, Home, Comfort, and Eco.",
           "manual_hold_hours": "When any controlled device is changed manually or by another automation, automated control of that device is suspended for this many hours. 0 = disabled.",
           "manual_hold_confirm_seconds": "How long a device state mismatch must persist before it is treated as a manual override. Increase this if holds trigger too easily because devices report state slowly."
         }
@@ -205,7 +205,7 @@
         }
       },
       "edit_global_general": {
-        "title": "Global Defaults — General limits",
+        "title": "Global Defaults \u2014 General limits",
         "description": "Shared comfort zone and safety temperature bounds.",
         "data": {
           "comfort_zone": "Default comfort zone width",
@@ -213,13 +213,13 @@
           "maximum_temperature": "Emergency maximum temperature"
         },
         "data_description": {
-          "comfort_zone": "Half-width of the dead zone (±°C). Applied as the starting value for new rooms.",
+          "comfort_zone": "Half-width of the dead zone (\u00b1\u00b0C). Applied as the starting value for new rooms.",
           "minimum_temperature": "Lowest safe temperature. Devices marked as emergency enabled can ignore Away protection to prevent the room dropping below this.",
           "maximum_temperature": "Highest safe temperature. Devices marked as emergency enabled can ignore Away protection to prevent the room rising above this."
         }
       },
       "edit_global_modes": {
-        "title": "Global Defaults — Mode temperatures",
+        "title": "Global Defaults \u2014 Mode temperatures",
         "description": "Target temperatures and aggressiveness profile used by each house mode.",
         "data": {
           "mode_away": "Away temperature",
@@ -228,21 +228,21 @@
           "mode_sleep_profile": "Sleep aggressiveness",
           "mode_home": "Home temperature",
           "mode_home_profile": "Home aggressiveness",
-          "mode_warmup": "Warmup temperature",
-          "mode_warmup_profile": "Warmup aggressiveness",
-          "mode_cooldown": "Cooldown temperature",
-          "mode_cooldown_profile": "Cooldown aggressiveness"
+          "mode_warmup": "Comfort temperature",
+          "mode_warmup_profile": "Comfort aggressiveness",
+          "mode_cooldown": "Eco temperature",
+          "mode_cooldown_profile": "Eco aggressiveness"
         },
         "data_description": {
           "mode_away": "Protection / away setpoint.",
           "mode_sleep": "Night-time target temperature.",
           "mode_home": "Normal occupied target temperature.",
-          "mode_warmup": "More assertive heating target.",
-          "mode_cooldown": "More assertive cooling target."
+          "mode_warmup": "Comfort preset target temperature.",
+          "mode_cooldown": "Eco preset target temperature."
         }
       },
       "edit_global_profiles": {
-        "title": "Global Defaults — Aggressiveness profiles",
+        "title": "Global Defaults \u2014 Aggressiveness profiles",
         "description": "Choose a profile group to edit.",
         "menu_options": {
           "edit_global_profiles_default": "Default profile",
@@ -254,7 +254,7 @@
         }
       },
       "edit_global_floors": {
-        "title": "Global Defaults — Floor mode selectors",
+        "title": "Global Defaults \u2014 Floor mode selectors",
         "description": "Create optional per-floor mode selectors alongside the whole-house mode selector.",
         "data": {
           "floor_names": "Floor / zone selectors"
@@ -276,7 +276,7 @@
         }
       },
       "edit_global_profiles_default": {
-        "title": "Global Defaults — Default profile",
+        "title": "Global Defaults \u2014 Default profile",
         "description": "Edit only this profile group.",
         "data": {
           "default_profile": "Default aggressiveness"
@@ -286,7 +286,7 @@
         }
       },
       "edit_global_profiles_relaxed": {
-        "title": "Global Defaults — Relaxed profile",
+        "title": "Global Defaults \u2014 Relaxed profile",
         "description": "Edit only this profile group.",
         "data": {
           "profile_relaxed_comfort_multiplier": "Comfort zone multiplier",
@@ -298,7 +298,7 @@
         }
       },
       "edit_global_profiles_balanced": {
-        "title": "Global Defaults — Balanced profile",
+        "title": "Global Defaults \u2014 Balanced profile",
         "description": "Edit only this profile group.",
         "data": {
           "profile_balanced_comfort_multiplier": "Comfort zone multiplier",
@@ -310,7 +310,7 @@
         }
       },
       "edit_global_profiles_responsive": {
-        "title": "Global Defaults — Responsive profile",
+        "title": "Global Defaults \u2014 Responsive profile",
         "description": "Edit only this profile group.",
         "data": {
           "profile_responsive_comfort_multiplier": "Comfort zone multiplier",
@@ -322,7 +322,7 @@
         }
       },
       "edit_global_profiles_aggressive": {
-        "title": "Global Defaults — Aggressive profile",
+        "title": "Global Defaults \u2014 Aggressive profile",
         "description": "Edit only this profile group.",
         "data": {
           "profile_aggressive_comfort_multiplier": "Comfort zone multiplier",
@@ -334,7 +334,7 @@
         }
       },
       "edit_room_aggressiveness_default": {
-        "title": "Room — Default profile",
+        "title": "Room \u2014 Default profile",
         "description": "Edit only this profile group.",
         "data": {
           "default_profile": "Default aggressiveness"
@@ -344,7 +344,7 @@
         }
       },
       "edit_room_aggressiveness_relaxed": {
-        "title": "Room — Relaxed profile",
+        "title": "Room \u2014 Relaxed profile",
         "description": "Edit only this profile group.",
         "data": {
           "profile_relaxed_comfort_multiplier": "Comfort zone multiplier",
@@ -356,7 +356,7 @@
         }
       },
       "edit_room_aggressiveness_balanced": {
-        "title": "Room — Balanced profile",
+        "title": "Room \u2014 Balanced profile",
         "description": "Edit only this profile group.",
         "data": {
           "profile_balanced_comfort_multiplier": "Comfort zone multiplier",
@@ -368,7 +368,7 @@
         }
       },
       "edit_room_aggressiveness_responsive": {
-        "title": "Room — Responsive profile",
+        "title": "Room \u2014 Responsive profile",
         "description": "Edit only this profile group.",
         "data": {
           "profile_responsive_comfort_multiplier": "Comfort zone multiplier",
@@ -380,7 +380,7 @@
         }
       },
       "edit_room_aggressiveness_aggressive": {
-        "title": "Room — Aggressive profile",
+        "title": "Room \u2014 Aggressive profile",
         "description": "Edit only this profile group.",
         "data": {
           "profile_aggressive_comfort_multiplier": "Comfort zone multiplier",

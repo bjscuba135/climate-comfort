@@ -58,13 +58,20 @@ def test_temperature_sensor_selector_is_constrained_to_temperature_device_class(
     assert 'selector.EntitySelectorConfig(domain="sensor", device_class="temperature")' in CONFIG_FLOW
 
 
-def test_fixed_mode_and_profile_names_do_not_overlap():
+def test_fixed_mode_names_use_home_assistant_icon_backed_presets():
+    assert 'MODE_AWAY = "away"' in CONST
+    assert 'MODE_SLEEP = "sleep"' in CONST
     assert 'MODE_HOME = "home"' in CONST
-    assert 'MODE_WARMUP = "warmup"' in CONST
-    assert 'MODE_COOLDOWN = "cooldown"' in CONST
-    assert 'PROFILE_BALANCED = "balanced"' in CONST
-    assert 'PROFILE_AGGRESSIVE = "aggressive"' in CONST
-    assert '"boost"' not in SELECT.split("HOUSE_MODE_OPTIONS", 1)[1].split("]", 1)[0]
+    assert 'MODE_WARMUP = "comfort"' in CONST
+    assert 'MODE_COOLDOWN = "eco"' in CONST
+    assert 'MODE_OPTIONS = [MODE_AWAY, MODE_SLEEP, MODE_HOME, MODE_WARMUP, MODE_COOLDOWN]' in CONST
+    select_options_area = SELECT.split("HOUSE_MODE_OPTIONS = MODE_OPTIONS", 1)[1].split("_LEGACY_MODE_ALIASES", 1)[0]
+    assert '"warmup"' not in select_options_area
+    assert '"cooldown"' not in select_options_area
+    assert '_LEGACY_MODE_ALIASES' in SELECT
+    assert '"warmup": MODE_WARMUP' in SELECT
+    assert '"cooldown": MODE_COOLDOWN' in SELECT
+    assert '_LEGACY_MODE_ALIASES' in CLIMATE
 
 
 def test_global_profile_settings_are_required_and_one_decimal_place():
