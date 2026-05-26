@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-from homeassistant.components.climate.const import (
-    PRESET_BOOST,
-    PRESET_COMFORT,
-    PRESET_ECO,
-)
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
@@ -16,14 +11,19 @@ from .const import (
     CONF_DEVICE_ROLE,
     CONF_DEVICES,
     CONF_ENTRY_TYPE,
-    CONF_PRESET_AWAY_HIGH,
-    CONF_PRESET_AWAY_LOW,
-    CONF_PRESET_BOOST,
-    CONF_PRESET_COMFORT,
-    CONF_PRESET_ECO,
+    CONF_MODE_AWAY,
+    CONF_MODE_COOLDOWN,
+    CONF_MODE_HOME,
+    CONF_MODE_SLEEP,
+    CONF_MODE_WARMUP,
     CONF_USE_GLOBAL_PRESETS,
     DOMAIN,
     ENTRY_TYPE_GLOBAL,
+    MODE_AWAY,
+    MODE_COOLDOWN,
+    MODE_HOME,
+    MODE_SLEEP,
+    MODE_WARMUP,
     ROLE_DEHUMIDIFY,
 )
 
@@ -103,8 +103,8 @@ class GlobalPresetsSwitch(SwitchEntity):
             self.async_write_ha_state()
             return
         new_data = {**self._entry.data, CONF_USE_GLOBAL_PRESETS: True}
-        for key in (CONF_PRESET_ECO, CONF_PRESET_COMFORT, CONF_PRESET_BOOST,
-                    CONF_PRESET_AWAY_LOW, CONF_PRESET_AWAY_HIGH):
+        for key in (CONF_MODE_AWAY, CONF_MODE_SLEEP, CONF_MODE_HOME,
+                    CONF_MODE_WARMUP, CONF_MODE_COOLDOWN):
             if key in global_cfg:
                 new_data[key] = global_cfg[key]
         self.hass.config_entries.async_update_entry(self._entry, data=new_data)
@@ -113,16 +113,15 @@ class GlobalPresetsSwitch(SwitchEntity):
         entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
         climate = entry_data.get("climate_entity")
         if climate:
-            if CONF_PRESET_ECO in global_cfg:
-                climate._preset_temps[PRESET_ECO] = float(global_cfg[CONF_PRESET_ECO])
-            if CONF_PRESET_COMFORT in global_cfg:
-                climate._preset_temps[PRESET_COMFORT] = float(global_cfg[CONF_PRESET_COMFORT])
-            if CONF_PRESET_BOOST in global_cfg:
-                climate._preset_temps[PRESET_BOOST] = float(global_cfg[CONF_PRESET_BOOST])
-            if CONF_PRESET_AWAY_LOW in global_cfg:
-                climate._away_low = float(global_cfg[CONF_PRESET_AWAY_LOW])
-            if CONF_PRESET_AWAY_HIGH in global_cfg:
-                climate._away_high = float(global_cfg[CONF_PRESET_AWAY_HIGH])
+            for mode, key in {
+                MODE_AWAY: CONF_MODE_AWAY,
+                MODE_SLEEP: CONF_MODE_SLEEP,
+                MODE_HOME: CONF_MODE_HOME,
+                MODE_WARMUP: CONF_MODE_WARMUP,
+                MODE_COOLDOWN: CONF_MODE_COOLDOWN,
+            }.items():
+                if key in global_cfg:
+                    climate._mode_temps[mode] = float(global_cfg[key])
             self.hass.async_create_task(climate._evaluate_devices())
             climate.async_write_ha_state()
 

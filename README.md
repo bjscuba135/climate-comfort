@@ -62,7 +62,42 @@ Climate Comfort creates a **virtual thermostat** for each room. You tell it whic
 
 ### HACS
 
-> HACS support coming soon — repository submission pending.
+Climate Comfort can be installed with HACS as a custom repository until it is accepted into the default HACS catalogue.
+
+1. Open **HACS → Integrations**.
+2. Select the three-dot menu → **Custom repositories**.
+3. Add this repository URL:
+   ```text
+   https://github.com/bjscuba135/climate-comfort
+   ```
+4. Set **Category** to **Integration**.
+5. Select **Add**, then search HACS for **Climate Comfort** and install it.
+6. Restart Home Assistant.
+7. Go to **Settings → Devices & Services → Add Integration** and search for **Climate Comfort**.
+
+#### Updating from a manual install
+
+If you previously copied the integration over the local network, and it was installed as:
+
+```text
+custom_components/climate_comfort
+```
+
+then the HACS install uses the same Home Assistant domain (`climate_comfort`) and should load your existing config entries and entity registry records.
+
+Recommended safe migration:
+
+1. Back up Home Assistant.
+2. Rename the manually copied folder before installing through HACS:
+   ```text
+   custom_components/climate_comfort.old
+   ```
+3. Install **Climate Comfort** through HACS using the custom repository steps above.
+4. Restart Home Assistant.
+5. Confirm the existing Climate Comfort entries and entities load normally.
+6. Delete `custom_components/climate_comfort.old` after the HACS-managed install is working.
+
+Do not keep both the old manual copy and the HACS-managed copy in place at the same time.
 
 ---
 

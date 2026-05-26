@@ -9,10 +9,10 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import CONF_ENTRY_TYPE, CONF_FLOOR_NAMES, DOMAIN, ENTRY_TYPE_GLOBAL
+from .const import CONF_ENTRY_TYPE, CONF_FLOOR_NAMES, DOMAIN, ENTRY_TYPE_GLOBAL, MODE_OPTIONS, MODE_HOME
 
-HOUSE_MODE_OPTIONS = ["comfort", "eco", "boost", "away"]
-_DEFAULT_MODE = "comfort"
+HOUSE_MODE_OPTIONS = MODE_OPTIONS
+_DEFAULT_MODE = MODE_HOME
 
 _DATA_FLOOR_SELECTS = "floor_selects"
 

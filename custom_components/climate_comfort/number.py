@@ -7,47 +7,47 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from homeassistant.components.climate.const import (
-    PRESET_AWAY,
-    PRESET_BOOST,
-    PRESET_COMFORT,
-    PRESET_ECO,
-)
-
 from .const import (
     CONF_COMFORT_ZONE,
     CONF_ENTRY_TYPE,
-    CONF_PRESET_AWAY_HIGH,
-    CONF_PRESET_AWAY_LOW,
-    CONF_PRESET_BOOST,
-    CONF_PRESET_COMFORT,
-    CONF_PRESET_ECO,
+    CONF_MODE_AWAY,
+    CONF_MODE_COOLDOWN,
+    CONF_MODE_HOME,
+    CONF_MODE_SLEEP,
+    CONF_MODE_WARMUP,
     CONF_USE_GLOBAL_PRESETS,
     DEFAULT_COMFORT_ZONE,
-    DEFAULT_PRESET_AWAY_HIGH,
-    DEFAULT_PRESET_AWAY_LOW,
-    DEFAULT_PRESET_BOOST,
-    DEFAULT_PRESET_COMFORT,
-    DEFAULT_PRESET_ECO,
+    DEFAULT_MODE_AWAY,
+    DEFAULT_MODE_COOLDOWN,
+    DEFAULT_MODE_HOME,
+    DEFAULT_MODE_SLEEP,
+    DEFAULT_MODE_WARMUP,
     DOMAIN,
     ENTRY_TYPE_GLOBAL,
+    MODE_AWAY,
+    MODE_COOLDOWN,
+    MODE_HOME,
+    MODE_SLEEP,
+    MODE_WARMUP,
 )
 
 # (key_suffix, name, config_key, default, icon, is_delta, min_v, max_v, step)
 _NUMBER_DEFS: list[tuple] = [
     ("comfort_zone",   "Comfort Zone",        CONF_COMFORT_ZONE,     DEFAULT_COMFORT_ZONE,     "mdi:swap-vertical-circle", True,  0.1, 5.0,  0.1),
-    ("preset_eco",     "Eco Temperature",     CONF_PRESET_ECO,       DEFAULT_PRESET_ECO,       "mdi:leaf",                 False, 5.0, 30.0, 0.5),
-    ("preset_comfort", "Comfort Temperature", CONF_PRESET_COMFORT,   DEFAULT_PRESET_COMFORT,   "mdi:sofa",                 False, 5.0, 30.0, 0.5),
-    ("preset_boost",   "Boost Temperature",   CONF_PRESET_BOOST,     DEFAULT_PRESET_BOOST,     "mdi:rocket-launch",        False, 5.0, 30.0, 0.5),
-    ("away_lower",     "Away Lower Limit",    CONF_PRESET_AWAY_LOW,  DEFAULT_PRESET_AWAY_LOW,  "mdi:thermometer-low",      False, 5.0, 25.0, 0.5),
-    ("away_upper",     "Away Upper Limit",    CONF_PRESET_AWAY_HIGH, DEFAULT_PRESET_AWAY_HIGH, "mdi:thermometer-high",     False, 20.0, 40.0, 0.5),
+    ("mode_away",      "Away Temperature",     CONF_MODE_AWAY,       DEFAULT_MODE_AWAY,       "mdi:home-export-outline",  False, 5.0, 30.0, 0.1),
+    ("mode_sleep",     "Sleep Temperature",    CONF_MODE_SLEEP,      DEFAULT_MODE_SLEEP,      "mdi:sleep",                False, 5.0, 30.0, 0.1),
+    ("mode_home",      "Home Temperature",     CONF_MODE_HOME,       DEFAULT_MODE_HOME,       "mdi:sofa",                 False, 5.0, 30.0, 0.1),
+    ("mode_warmup",    "Warmup Temperature",   CONF_MODE_WARMUP,     DEFAULT_MODE_WARMUP,     "mdi:thermometer-chevron-up", False, 5.0, 30.0, 0.1),
+    ("mode_cooldown",  "Cooldown Temperature", CONF_MODE_COOLDOWN,   DEFAULT_MODE_COOLDOWN,   "mdi:thermometer-chevron-down", False, 5.0, 30.0, 0.1),
 ]
 
 # Map config keys to climate entity attribute names for live in-memory updates
 _PRESET_KEY_MAP = {
-    CONF_PRESET_ECO: PRESET_ECO,
-    CONF_PRESET_COMFORT: PRESET_COMFORT,
-    CONF_PRESET_BOOST: PRESET_BOOST,
+    CONF_MODE_AWAY: MODE_AWAY,
+    CONF_MODE_SLEEP: MODE_SLEEP,
+    CONF_MODE_HOME: MODE_HOME,
+    CONF_MODE_WARMUP: MODE_WARMUP,
+    CONF_MODE_COOLDOWN: MODE_COOLDOWN,
 }
 
 
@@ -175,11 +175,7 @@ class RoomSettingNumber(NumberEntity):
         climate = entry_data.get("climate_entity")
         if climate:
             if self._config_key in _PRESET_KEY_MAP:
-                climate._preset_temps[_PRESET_KEY_MAP[self._config_key]] = value
-            elif self._config_key == CONF_PRESET_AWAY_LOW:
-                climate._away_low = value
-            elif self._config_key == CONF_PRESET_AWAY_HIGH:
-                climate._away_high = value
+                climate._mode_temps[_PRESET_KEY_MAP[self._config_key]] = value
             elif self._config_key == CONF_COMFORT_ZONE:
                 climate._comfort_zone = value
             # Re-evaluate with the new setting

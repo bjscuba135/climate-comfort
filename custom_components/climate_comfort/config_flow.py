@@ -8,9 +8,12 @@ from homeassistant.util import slugify
 
 from .const import (
     CONF_COMFORT_ZONE,
+    CONF_DEFAULT_PROFILE,
     CONF_DEVICE_ACTIVATE_OFFSET,
+    CONF_DEVICE_ACTIVATION_POINT,
     CONF_DEVICE_DEACTIVATE_OFFSET,
     CONF_DEVICE_DEHUMIDIFY_ONLY_WHEN_IDLE,
+    CONF_DEVICE_EMERGENCY_ENABLED,
     CONF_DEVICE_ENTITY,
     CONF_DEVICE_HUMIDITY_HYSTERESIS,
     CONF_DEVICE_HUMIDITY_THRESHOLD,
@@ -24,30 +27,62 @@ from .const import (
     CONF_HOUSE_MODE_ENTITY,
     CONF_HUMIDITY_SENSOR,
     CONF_MANUAL_HOLD_HOURS,
-    DEFAULT_MANUAL_HOLD_HOURS,
-    CONF_PRESET_AWAY_HIGH,
-    CONF_PRESET_AWAY_LOW,
-    CONF_PRESET_BOOST,
-    CONF_PRESET_COMFORT,
-    CONF_PRESET_ECO,
+    CONF_MAXIMUM_TEMPERATURE,
+    CONF_MINIMUM_TEMPERATURE,
+    CONF_MODE_AWAY,
+    CONF_MODE_AWAY_PROFILE,
+    CONF_MODE_COOLDOWN,
+    CONF_MODE_COOLDOWN_PROFILE,
+    CONF_MODE_HOME,
+    CONF_MODE_HOME_PROFILE,
+    CONF_MODE_SLEEP,
+    CONF_MODE_SLEEP_PROFILE,
+    CONF_MODE_WARMUP,
+    CONF_MODE_WARMUP_PROFILE,
+    CONF_PROFILE_AGGRESSIVE_COMFORT_MULTIPLIER,
+    CONF_PROFILE_AGGRESSIVE_POINT_SPACING,
+    CONF_PROFILE_BALANCED_COMFORT_MULTIPLIER,
+    CONF_PROFILE_BALANCED_POINT_SPACING,
+    CONF_PROFILE_RELAXED_COMFORT_MULTIPLIER,
+    CONF_PROFILE_RELAXED_POINT_SPACING,
+    CONF_PROFILE_RESPONSIVE_COMFORT_MULTIPLIER,
+    CONF_PROFILE_RESPONSIVE_POINT_SPACING,
     CONF_TEMPERATURE_SENSOR,
     CONF_USE_GLOBAL_PRESETS,
     DEFAULT_ACTIVATE_OFFSET,
     DEFAULT_COMFORT_ZONE,
     DEFAULT_DEACTIVATE_OFFSET,
+    DEFAULT_MAX_TEMP,
+    DEFAULT_MIN_TEMP,
+    DEFAULT_MODE_AWAY,
+    DEFAULT_MODE_COOLDOWN,
+    DEFAULT_MODE_HOME,
+    DEFAULT_MODE_PROFILE_AWAY,
+    DEFAULT_MODE_PROFILE_COOLDOWN,
+    DEFAULT_MODE_PROFILE_HOME,
+    DEFAULT_MODE_PROFILE_SLEEP,
+    DEFAULT_MODE_PROFILE_WARMUP,
+    DEFAULT_MODE_SLEEP,
+    DEFAULT_MODE_WARMUP,
+    DEFAULT_PROFILE,
+    DEFAULT_PROFILE_AGGRESSIVE_COMFORT_MULTIPLIER,
+    DEFAULT_PROFILE_AGGRESSIVE_POINT_SPACING,
+    DEFAULT_PROFILE_BALANCED_COMFORT_MULTIPLIER,
+    DEFAULT_PROFILE_BALANCED_POINT_SPACING,
+    DEFAULT_PROFILE_RELAXED_COMFORT_MULTIPLIER,
+    DEFAULT_PROFILE_RELAXED_POINT_SPACING,
+    DEFAULT_PROFILE_RESPONSIVE_COMFORT_MULTIPLIER,
+    DEFAULT_PROFILE_RESPONSIVE_POINT_SPACING,
+    DEFAULT_MANUAL_HOLD_HOURS,
     DEFAULT_HUMIDITY_HYSTERESIS,
     DEFAULT_HUMIDITY_THRESHOLD,
-    DEFAULT_PRESET_AWAY_HIGH,
-    DEFAULT_PRESET_AWAY_LOW,
-    DEFAULT_PRESET_BOOST,
-    DEFAULT_PRESET_COMFORT,
-    DEFAULT_PRESET_ECO,
     DOMAIN,
     ENTRY_TYPE_GLOBAL,
     ENTRY_TYPE_ROOM,
     ROLE_COOLING,
     ROLE_DEHUMIDIFY,
     ROLE_HEATING,
+    PROFILE_OPTIONS,
 )
 
 # ── Selector helpers ────────────────────────────────────────────────────────
@@ -139,16 +174,56 @@ def _mode_entity_options(hass) -> list[selector.SelectOptionDict]:
         return []
 
 
-def _preset_schema(eco=DEFAULT_PRESET_ECO, comfort=DEFAULT_PRESET_COMFORT,
-                   boost=DEFAULT_PRESET_BOOST, away_low=DEFAULT_PRESET_AWAY_LOW,
-                   away_high=DEFAULT_PRESET_AWAY_HIGH) -> vol.Schema:
+def _profile_selector(default: str = DEFAULT_PROFILE) -> selector.SelectSelector:
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=[selector.SelectOptionDict(value=p, label=p.title()) for p in PROFILE_OPTIONS],
+            custom_value=False,
+        )
+    )
+
+
+def _profile_fields(cfg: dict | None = None) -> dict:
+    cfg = cfg or {}
+    return {
+        vol.Required(CONF_DEFAULT_PROFILE, default=cfg.get(CONF_DEFAULT_PROFILE, DEFAULT_PROFILE)): _profile_selector(),
+        vol.Required(CONF_PROFILE_RELAXED_COMFORT_MULTIPLIER, default=float(cfg.get(CONF_PROFILE_RELAXED_COMFORT_MULTIPLIER, DEFAULT_PROFILE_RELAXED_COMFORT_MULTIPLIER))): _num(0.1, 3.0, step=0.1, unit="×", mode=selector.NumberSelectorMode.BOX),
+        vol.Required(CONF_PROFILE_RELAXED_POINT_SPACING, default=float(cfg.get(CONF_PROFILE_RELAXED_POINT_SPACING, DEFAULT_PROFILE_RELAXED_POINT_SPACING))): _num(0.1, 2.0, step=0.1, unit="°C", mode=selector.NumberSelectorMode.BOX),
+        vol.Required(CONF_PROFILE_BALANCED_COMFORT_MULTIPLIER, default=float(cfg.get(CONF_PROFILE_BALANCED_COMFORT_MULTIPLIER, DEFAULT_PROFILE_BALANCED_COMFORT_MULTIPLIER))): _num(0.1, 3.0, step=0.1, unit="×", mode=selector.NumberSelectorMode.BOX),
+        vol.Required(CONF_PROFILE_BALANCED_POINT_SPACING, default=float(cfg.get(CONF_PROFILE_BALANCED_POINT_SPACING, DEFAULT_PROFILE_BALANCED_POINT_SPACING))): _num(0.1, 2.0, step=0.1, unit="°C", mode=selector.NumberSelectorMode.BOX),
+        vol.Required(CONF_PROFILE_RESPONSIVE_COMFORT_MULTIPLIER, default=float(cfg.get(CONF_PROFILE_RESPONSIVE_COMFORT_MULTIPLIER, DEFAULT_PROFILE_RESPONSIVE_COMFORT_MULTIPLIER))): _num(0.1, 3.0, step=0.1, unit="×", mode=selector.NumberSelectorMode.BOX),
+        vol.Required(CONF_PROFILE_RESPONSIVE_POINT_SPACING, default=float(cfg.get(CONF_PROFILE_RESPONSIVE_POINT_SPACING, DEFAULT_PROFILE_RESPONSIVE_POINT_SPACING))): _num(0.1, 2.0, step=0.1, unit="°C", mode=selector.NumberSelectorMode.BOX),
+        vol.Required(CONF_PROFILE_AGGRESSIVE_COMFORT_MULTIPLIER, default=float(cfg.get(CONF_PROFILE_AGGRESSIVE_COMFORT_MULTIPLIER, DEFAULT_PROFILE_AGGRESSIVE_COMFORT_MULTIPLIER))): _num(0.1, 3.0, step=0.1, unit="×", mode=selector.NumberSelectorMode.BOX),
+        vol.Required(CONF_PROFILE_AGGRESSIVE_POINT_SPACING, default=float(cfg.get(CONF_PROFILE_AGGRESSIVE_POINT_SPACING, DEFAULT_PROFILE_AGGRESSIVE_POINT_SPACING))): _num(0.1, 2.0, step=0.1, unit="°C", mode=selector.NumberSelectorMode.BOX),
+    }
+
+
+def _mode_schema(cfg: dict | None = None) -> vol.Schema:
+    cfg = cfg or {}
     return vol.Schema({
-        vol.Required(CONF_PRESET_ECO, default=eco): _num(5, 30),
-        vol.Required(CONF_PRESET_COMFORT, default=comfort): _num(5, 30),
-        vol.Required(CONF_PRESET_BOOST, default=boost): _num(5, 30),
-        vol.Required(CONF_PRESET_AWAY_LOW, default=away_low): _num(5, 25, mode=selector.NumberSelectorMode.BOX),
-        vol.Required(CONF_PRESET_AWAY_HIGH, default=away_high): _num(20, 40, mode=selector.NumberSelectorMode.BOX),
+        vol.Required(CONF_MODE_AWAY, default=float(cfg.get(CONF_MODE_AWAY, DEFAULT_MODE_AWAY))): _num(5, 30, step=0.1),
+        vol.Required(CONF_MODE_AWAY_PROFILE, default=cfg.get(CONF_MODE_AWAY_PROFILE, DEFAULT_MODE_PROFILE_AWAY)): _profile_selector(),
+        vol.Required(CONF_MODE_SLEEP, default=float(cfg.get(CONF_MODE_SLEEP, DEFAULT_MODE_SLEEP))): _num(5, 30, step=0.1),
+        vol.Required(CONF_MODE_SLEEP_PROFILE, default=cfg.get(CONF_MODE_SLEEP_PROFILE, DEFAULT_MODE_PROFILE_SLEEP)): _profile_selector(),
+        vol.Required(CONF_MODE_HOME, default=float(cfg.get(CONF_MODE_HOME, DEFAULT_MODE_HOME))): _num(5, 30, step=0.1),
+        vol.Required(CONF_MODE_HOME_PROFILE, default=cfg.get(CONF_MODE_HOME_PROFILE, DEFAULT_MODE_PROFILE_HOME)): _profile_selector(),
+        vol.Required(CONF_MODE_WARMUP, default=float(cfg.get(CONF_MODE_WARMUP, DEFAULT_MODE_WARMUP))): _num(5, 30, step=0.1),
+        vol.Required(CONF_MODE_WARMUP_PROFILE, default=cfg.get(CONF_MODE_WARMUP_PROFILE, DEFAULT_MODE_PROFILE_WARMUP)): _profile_selector(),
+        vol.Required(CONF_MODE_COOLDOWN, default=float(cfg.get(CONF_MODE_COOLDOWN, DEFAULT_MODE_COOLDOWN))): _num(5, 30, step=0.1),
+        vol.Required(CONF_MODE_COOLDOWN_PROFILE, default=cfg.get(CONF_MODE_COOLDOWN_PROFILE, DEFAULT_MODE_PROFILE_COOLDOWN)): _profile_selector(),
     })
+
+
+def _activation_point_selector(role: str, default: int = 0) -> selector.SelectSelector:
+    choices = range(-5, 1) if role == ROLE_HEATING else range(0, 6)
+    if default not in choices:
+        default = 0
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=[selector.SelectOptionDict(value=str(p), label=f"{p:+d}" if p else "0") for p in choices],
+            custom_value=False,
+        )
+    )
 
 
 def _climate_modes_for_entity(hass, entity_id: str) -> list[selector.SelectOptionDict]:
@@ -189,7 +264,8 @@ class ClimateComfortConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_room(self, user_input=None):
         g = self._global_config()
-        has_global = bool(g)
+        if not g:
+            return self.async_abort(reason="global_defaults_required")
 
         if user_input is not None:
             # Prevent two rooms with the same name being created accidentally
@@ -201,22 +277,27 @@ class ClimateComfortConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             self._data.update(user_input)
             self._data[CONF_ENTRY_TYPE] = ENTRY_TYPE_ROOM
-            use_global = bool(user_input.get(CONF_USE_GLOBAL_PRESETS, False))
-
-            if use_global and has_global:
-                # Copy global preset values into the entry data and set the flag.
-                # Preset step is skipped entirely.
-                for key in (
-                    CONF_PRESET_ECO, CONF_PRESET_COMFORT, CONF_PRESET_BOOST,
-                    CONF_PRESET_AWAY_LOW, CONF_PRESET_AWAY_HIGH,
-                ):
-                    if key in g:
-                        self._data[key] = g[key]
-                self._data[CONF_USE_GLOBAL_PRESETS] = True
-                return self.async_create_entry(title=self._data[CONF_NAME], data=self._data)
-
-            self._data[CONF_USE_GLOBAL_PRESETS] = False
-            return await self.async_step_presets()
+            self._data[CONF_USE_GLOBAL_PRESETS] = True
+            for key in (
+                CONF_MODE_AWAY, CONF_MODE_AWAY_PROFILE,
+                CONF_MODE_SLEEP, CONF_MODE_SLEEP_PROFILE,
+                CONF_MODE_HOME, CONF_MODE_HOME_PROFILE,
+                CONF_MODE_WARMUP, CONF_MODE_WARMUP_PROFILE,
+                CONF_MODE_COOLDOWN, CONF_MODE_COOLDOWN_PROFILE,
+                CONF_MINIMUM_TEMPERATURE, CONF_MAXIMUM_TEMPERATURE,
+                CONF_DEFAULT_PROFILE,
+                CONF_PROFILE_RELAXED_COMFORT_MULTIPLIER,
+                CONF_PROFILE_RELAXED_POINT_SPACING,
+                CONF_PROFILE_BALANCED_COMFORT_MULTIPLIER,
+                CONF_PROFILE_BALANCED_POINT_SPACING,
+                CONF_PROFILE_RESPONSIVE_COMFORT_MULTIPLIER,
+                CONF_PROFILE_RESPONSIVE_POINT_SPACING,
+                CONF_PROFILE_AGGRESSIVE_COMFORT_MULTIPLIER,
+                CONF_PROFILE_AGGRESSIVE_POINT_SPACING,
+            ):
+                if key in g:
+                    self._data[key] = g[key]
+            return self.async_create_entry(title=self._data[CONF_NAME], data=self._data)
 
         schema_fields: dict = {
             vol.Required(CONF_NAME): str,
@@ -234,32 +315,9 @@ class ClimateComfortConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ): _num(0, 24, step=0.5, unit="h", mode=selector.NumberSelectorMode.SLIDER),
         }
 
-        # Only show the toggle when a Global Defaults entry exists
-        if has_global:
-            schema_fields[vol.Required(CONF_USE_GLOBAL_PRESETS, default=True)] = (
-                selector.BooleanSelector()
-            )
-
         return self.async_show_form(
             step_id="room",
             data_schema=vol.Schema(schema_fields),
-        )
-
-    async def async_step_presets(self, user_input=None):
-        if user_input is not None:
-            self._data.update(user_input)
-            return self.async_create_entry(title=self._data[CONF_NAME], data=self._data)
-
-        g = self._global_config()
-        return self.async_show_form(
-            step_id="presets",
-            data_schema=_preset_schema(
-                eco=float(g.get(CONF_PRESET_ECO, DEFAULT_PRESET_ECO)),
-                comfort=float(g.get(CONF_PRESET_COMFORT, DEFAULT_PRESET_COMFORT)),
-                boost=float(g.get(CONF_PRESET_BOOST, DEFAULT_PRESET_BOOST)),
-                away_low=float(g.get(CONF_PRESET_AWAY_LOW, DEFAULT_PRESET_AWAY_LOW)),
-                away_high=float(g.get(CONF_PRESET_AWAY_HIGH, DEFAULT_PRESET_AWAY_HIGH)),
-            ),
         )
 
     # ── Global defaults path ─────────────────────────────────────────────────
@@ -282,7 +340,10 @@ class ClimateComfortConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="global_defaults",
             data_schema=vol.Schema({
                 vol.Required(CONF_COMFORT_ZONE, default=DEFAULT_COMFORT_ZONE): _num(0.1, 5.0, step=0.1),
-                **_preset_schema().schema,
+                vol.Required(CONF_MINIMUM_TEMPERATURE, default=DEFAULT_MIN_TEMP): _num(0.0, 20.0, step=0.1, mode=selector.NumberSelectorMode.BOX),
+                vol.Required(CONF_MAXIMUM_TEMPERATURE, default=DEFAULT_MAX_TEMP): _num(20.0, 45.0, step=0.1, mode=selector.NumberSelectorMode.BOX),
+                **_profile_fields(),
+                **_mode_schema().schema,
                 vol.Optional(CONF_FLOOR_NAMES, default=[]): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=_ha_floor_options(self.hass),
@@ -352,17 +413,11 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
         if self._config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_GLOBAL:
             return await self.async_step_edit_global_defaults()
 
-        using_global = bool(
-            self._config_entry.data.get(CONF_USE_GLOBAL_PRESETS, False)
-        )
-
         base_menu: dict[str, str] = {"add_device": "Add a device"}
         if self._devices:
             base_menu["edit_device_select"] = "Edit a device"
             base_menu["remove_device"] = "Remove a device"
         base_menu["edit_settings"] = "Edit room settings"
-        if not using_global:
-            base_menu["edit_room_presets"] = "Edit preset temperatures"
         base_menu["finish"] = "Save & close"
 
         return self.async_show_menu(step_id="init", menu_options=base_menu)
@@ -382,13 +437,10 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
             step_id="edit_global_defaults",
             data_schema=vol.Schema({
                 vol.Required(CONF_COMFORT_ZONE, default=float(cfg.get(CONF_COMFORT_ZONE, DEFAULT_COMFORT_ZONE))): _num(0.1, 5.0, step=0.1),
-                **_preset_schema(
-                    eco=float(cfg.get(CONF_PRESET_ECO, DEFAULT_PRESET_ECO)),
-                    comfort=float(cfg.get(CONF_PRESET_COMFORT, DEFAULT_PRESET_COMFORT)),
-                    boost=float(cfg.get(CONF_PRESET_BOOST, DEFAULT_PRESET_BOOST)),
-                    away_low=float(cfg.get(CONF_PRESET_AWAY_LOW, DEFAULT_PRESET_AWAY_LOW)),
-                    away_high=float(cfg.get(CONF_PRESET_AWAY_HIGH, DEFAULT_PRESET_AWAY_HIGH)),
-                ).schema,
+                vol.Required(CONF_MINIMUM_TEMPERATURE, default=float(cfg.get(CONF_MINIMUM_TEMPERATURE, DEFAULT_MIN_TEMP))): _num(0.0, 20.0, step=0.1, mode=selector.NumberSelectorMode.BOX),
+                vol.Required(CONF_MAXIMUM_TEMPERATURE, default=float(cfg.get(CONF_MAXIMUM_TEMPERATURE, DEFAULT_MAX_TEMP))): _num(20.0, 45.0, step=0.1, mode=selector.NumberSelectorMode.BOX),
+                **_profile_fields(cfg),
+                **_mode_schema(cfg).schema,
                 vol.Optional(
                     CONF_FLOOR_NAMES,
                     default=list(cfg.get(CONF_FLOOR_NAMES, [])),
@@ -490,19 +542,26 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
             step_id="device_temp_config",
             data_schema=vol.Schema({
                 vol.Required(
-                    CONF_DEVICE_ACTIVATE_OFFSET,
-                    default=float(existing.get(CONF_DEVICE_ACTIVATE_OFFSET, DEFAULT_ACTIVATE_OFFSET)),
-                ): _num(0.0, 20.0, mode=selector.NumberSelectorMode.BOX),
+                    CONF_DEVICE_ACTIVATION_POINT,
+                    default=str(int(existing.get(CONF_DEVICE_ACTIVATION_POINT, 0))),
+                ): _activation_point_selector(
+                    self._pending.get(CONF_DEVICE_ROLE, ROLE_HEATING),
+                    int(existing.get(CONF_DEVICE_ACTIVATION_POINT, 0)),
+                ),
                 vol.Required(
                     CONF_DEVICE_DEACTIVATE_OFFSET,
                     default=float(existing.get(CONF_DEVICE_DEACTIVATE_OFFSET, DEFAULT_DEACTIVATE_OFFSET)),
                 ): _num(0.1, 5.0, step=0.1, mode=selector.NumberSelectorMode.BOX),
+                vol.Required(
+                    CONF_DEVICE_EMERGENCY_ENABLED,
+                    default=bool(existing.get(CONF_DEVICE_EMERGENCY_ENABLED, False)),
+                ): selector.BooleanSelector(),
             }),
             description_placeholders={
                 "role": self._pending.get(CONF_DEVICE_ROLE, ""),
                 "activate_help": (
-                    "0 = triggers exactly at the comfort zone boundary. "
-                    "5 = triggers 5°C beyond it."
+                    "Heating devices choose -5..0; cooling devices choose 0..5. "
+                    "The selected point is multiplied by the active profile point spacing."
                 ),
             },
         )
@@ -627,52 +686,38 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
     # ── Edit room settings (step 1: sensor + global toggle) ──────────────────
 
     async def async_step_edit_settings(self, user_input=None):
-        """
-        Step 1: temperature sensor, comfort zone, house mode, and (if a Global
-        Defaults entry exists) a toggle to sync preset temperatures from it.
-
-        If 'use global presets' is turned ON we copy the global values into
-        local data so they're visible, set the flag, and skip the presets step.
-        If turned OFF (or no global exists) we proceed to edit_presets where
-        the user can set their own values.
-        """
+        """Edit room sensors and base comfort zone. Modes/profiles stay global."""
         cfg = self._config_entry.data
         global_cfg = self._global_config()
-        has_global = bool(global_cfg)
 
         if user_input is not None:
-            # Strip None / empty-string values for optional entity fields so we
-            # don't write invalid entity IDs into config data.
-            clean = {
-                k: v for k, v in user_input.items()
-                if v not in (None, "")
-            }
-            new_data = {**cfg, **clean}
-            # If an optional entity field was cleared (absent from clean), remove it
+            clean = {k: v for k, v in user_input.items() if v not in (None, "")}
+            new_data = {**cfg, **clean, CONF_USE_GLOBAL_PRESETS: True}
             for key in (CONF_HUMIDITY_SENSOR, CONF_HOUSE_MODE_ENTITY):
                 if key not in clean:
                     new_data.pop(key, None)
+            for key in (
+                CONF_MODE_AWAY, CONF_MODE_AWAY_PROFILE,
+                CONF_MODE_SLEEP, CONF_MODE_SLEEP_PROFILE,
+                CONF_MODE_HOME, CONF_MODE_HOME_PROFILE,
+                CONF_MODE_WARMUP, CONF_MODE_WARMUP_PROFILE,
+                CONF_MODE_COOLDOWN, CONF_MODE_COOLDOWN_PROFILE,
+                CONF_MINIMUM_TEMPERATURE, CONF_MAXIMUM_TEMPERATURE,
+                CONF_DEFAULT_PROFILE,
+                CONF_PROFILE_RELAXED_COMFORT_MULTIPLIER,
+                CONF_PROFILE_RELAXED_POINT_SPACING,
+                CONF_PROFILE_BALANCED_COMFORT_MULTIPLIER,
+                CONF_PROFILE_BALANCED_POINT_SPACING,
+                CONF_PROFILE_RESPONSIVE_COMFORT_MULTIPLIER,
+                CONF_PROFILE_RESPONSIVE_POINT_SPACING,
+                CONF_PROFILE_AGGRESSIVE_COMFORT_MULTIPLIER,
+                CONF_PROFILE_AGGRESSIVE_POINT_SPACING,
+            ):
+                if key in global_cfg:
+                    new_data[key] = global_cfg[key]
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            return await self.async_step_init()
 
-            use_global = bool(clean.get(CONF_USE_GLOBAL_PRESETS, False))
-
-            if use_global and has_global:
-                for key in (
-                    CONF_PRESET_ECO, CONF_PRESET_COMFORT, CONF_PRESET_BOOST,
-                    CONF_PRESET_AWAY_LOW, CONF_PRESET_AWAY_HIGH,
-                ):
-                    if key in global_cfg:
-                        new_data[key] = global_cfg[key]
-                new_data[CONF_USE_GLOBAL_PRESETS] = True
-                self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
-                return await self.async_step_init()
-
-            new_data[CONF_USE_GLOBAL_PRESETS] = False
-            self._pending_settings = new_data
-            return await self.async_step_edit_presets()
-
-        # ── Build the form ────────────────────────────────────────────────────
-        # Optional entity selectors must NOT use default="" — an empty string
-        # fails HA's entity-ID validation.  Omit the default entirely when unset.
         humidity_sensor = cfg.get(CONF_HUMIDITY_SENSOR)
         house_mode_entity = cfg.get(CONF_HOUSE_MODE_ENTITY)
 
@@ -701,100 +746,19 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
             ): _num(0, 24, step=0.5, unit="h", mode=selector.NumberSelectorMode.SLIDER),
         }
 
-        placeholders: dict = {}
-
-        if has_global:
-            schema_fields[vol.Required(
-                CONF_USE_GLOBAL_PRESETS,
-                default=bool(cfg.get(CONF_USE_GLOBAL_PRESETS, False)),
-            )] = selector.BooleanSelector()
-
-            if cfg.get(CONF_USE_GLOBAL_PRESETS):
-                placeholders["global_summary"] = (
-                    f"Eco {global_cfg.get(CONF_PRESET_ECO, '?')} °C  ·  "
-                    f"Comfort {global_cfg.get(CONF_PRESET_COMFORT, '?')} °C  ·  "
-                    f"Boost {global_cfg.get(CONF_PRESET_BOOST, '?')} °C  ·  "
-                    f"Away {global_cfg.get(CONF_PRESET_AWAY_LOW, '?')}–"
-                    f"{global_cfg.get(CONF_PRESET_AWAY_HIGH, '?')} °C"
-                )
+        placeholders = {
+            "global_summary": (
+                f"Modes and profiles are inherited from Global Defaults. "
+                f"Home {global_cfg.get(CONF_MODE_HOME, '?')} °C · "
+                f"Warmup {global_cfg.get(CONF_MODE_WARMUP, '?')} °C · "
+                f"Cooldown {global_cfg.get(CONF_MODE_COOLDOWN, '?')} °C"
+            )
+        } if global_cfg else None
 
         return self.async_show_form(
             step_id="edit_settings",
             data_schema=vol.Schema(schema_fields),
-            description_placeholders=placeholders or None,
-        )
-
-    # ── Edit room settings (step 2: preset temperatures, via edit_settings) ─────
-
-    async def async_step_edit_presets(self, user_input=None):
-        """Preset edit reached via edit_settings (after sensor/global-toggle step)."""
-        pending = getattr(self, "_pending_settings", {})
-        cfg = self._config_entry.data
-
-        if user_input is not None:
-            new_data = {**pending, **user_input}
-            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
-            self._pending_settings = {}
-            return await self.async_step_init()
-
-        return self.async_show_form(
-            step_id="edit_presets",
-            data_schema=_preset_schema(
-                eco=float(cfg.get(CONF_PRESET_ECO, DEFAULT_PRESET_ECO)),
-                comfort=float(cfg.get(CONF_PRESET_COMFORT, DEFAULT_PRESET_COMFORT)),
-                boost=float(cfg.get(CONF_PRESET_BOOST, DEFAULT_PRESET_BOOST)),
-                away_low=float(cfg.get(CONF_PRESET_AWAY_LOW, DEFAULT_PRESET_AWAY_LOW)),
-                away_high=float(cfg.get(CONF_PRESET_AWAY_HIGH, DEFAULT_PRESET_AWAY_HIGH)),
-            ),
-        )
-
-    # ── Edit preset temperatures (direct menu option) ─────────────────────────
-
-    async def async_step_edit_room_presets(self, user_input=None):
-        """
-        Direct route to editing this room's preset temperatures.
-
-        Always accessible from the main menu regardless of whether global
-        presets are currently in use.  Saving here stores room-specific values
-        and automatically clears the 'use global presets' flag so those values
-        take effect immediately.
-        """
-        cfg = self._config_entry.data
-        global_cfg = self._global_config()
-        use_global = bool(cfg.get(CONF_USE_GLOBAL_PRESETS, False))
-
-        if user_input is not None:
-            new_data = {**cfg, **user_input, CONF_USE_GLOBAL_PRESETS: False}
-            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
-            return await self.async_step_init()
-
-        # Pre-fill with the currently effective values so the user sees
-        # what they're working with (global or local, whichever is active).
-        def _eff(key: str, default: float) -> float:
-            if use_global:
-                v = global_cfg.get(key) or cfg.get(key, default)
-            else:
-                v = cfg.get(key, default)
-            return float(v)
-
-        placeholders: dict = {}
-        if use_global:
-            placeholders["inherit_note"] = (
-                "These values are currently inherited from Global Defaults. "
-                "Saving here will store room-specific temperatures and stop "
-                "inheriting from global."
-            )
-
-        return self.async_show_form(
-            step_id="edit_room_presets",
-            data_schema=_preset_schema(
-                eco=_eff(CONF_PRESET_ECO, DEFAULT_PRESET_ECO),
-                comfort=_eff(CONF_PRESET_COMFORT, DEFAULT_PRESET_COMFORT),
-                boost=_eff(CONF_PRESET_BOOST, DEFAULT_PRESET_BOOST),
-                away_low=_eff(CONF_PRESET_AWAY_LOW, DEFAULT_PRESET_AWAY_LOW),
-                away_high=_eff(CONF_PRESET_AWAY_HIGH, DEFAULT_PRESET_AWAY_HIGH),
-            ),
-            description_placeholders=placeholders or None,
+            description_placeholders=placeholders,
         )
 
     # ── Save ─────────────────────────────────────────────────────────────────
@@ -805,6 +769,8 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _commit_pending(self) -> None:
+        if CONF_DEVICE_ACTIVATION_POINT in self._pending:
+            self._pending[CONF_DEVICE_ACTIVATION_POINT] = int(self._pending[CONF_DEVICE_ACTIVATION_POINT])
         if self._editing_index is not None:
             self._devices[self._editing_index] = self._pending
             self._editing_index = None

@@ -1,9 +1,14 @@
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CLIMATE = (ROOT / "custom_components/climate_comfort/climate.py").read_text()
 SWITCH = (ROOT / "custom_components/climate_comfort/switch.py").read_text()
 CONFIG_FLOW = (ROOT / "custom_components/climate_comfort/config_flow.py").read_text()
+CONST = (ROOT / "custom_components/climate_comfort/const.py").read_text()
+SELECT = (ROOT / "custom_components/climate_comfort/select.py").read_text()
+README = (ROOT / "README.md").read_text()
+MANIFEST = json.loads((ROOT / "custom_components/climate_comfort/manifest.json").read_text())
 
 
 def _method_body(source: str, marker: str, next_marker: str) -> str:
@@ -46,3 +51,83 @@ def test_global_preset_switch_requires_global_defaults():
 
 def test_temperature_sensor_selector_is_constrained_to_temperature_device_class():
     assert 'selector.EntitySelectorConfig(domain="sensor", device_class="temperature")' in CONFIG_FLOW
+
+
+def test_fixed_mode_and_profile_names_do_not_overlap():
+    assert 'MODE_HOME = "home"' in CONST
+    assert 'MODE_WARMUP = "warmup"' in CONST
+    assert 'MODE_COOLDOWN = "cooldown"' in CONST
+    assert 'PROFILE_BALANCED = "balanced"' in CONST
+    assert 'PROFILE_AGGRESSIVE = "aggressive"' in CONST
+    assert '"boost"' not in SELECT.split("HOUSE_MODE_OPTIONS", 1)[1].split("]", 1)[0]
+
+
+def test_global_profile_settings_are_required_and_one_decimal_place():
+    assert "CONF_PROFILE_BALANCED_COMFORT_MULTIPLIER" in CONST
+    assert "CONF_PROFILE_BALANCED_POINT_SPACING" in CONST
+    assert "step=0.1" in CONFIG_FLOW
+    assert 'CONF_DEFAULT_PROFILE = "default_profile"' in CONST
+    assert 'CONF_MINIMUM_TEMPERATURE = "minimum_temperature"' in CONST
+    assert 'CONF_MAXIMUM_TEMPERATURE = "maximum_temperature"' in CONST
+    assert "DEFAULT_TEMP_STEP = 0.1" in CONST
+
+
+def test_new_room_setup_requires_global_defaults_and_uses_modes_not_legacy_presets():
+    room_body = _method_body(CONFIG_FLOW, "async def async_step_room", "# ── Global defaults path")
+    assert 'global_defaults_required' in room_body
+    assert "CONF_MODE_HOME" in room_body
+    assert "CONF_MODE_COOLDOWN" in room_body
+    assert "CONF_PRESET_ECO" not in room_body
+    assert "async_step_presets" not in CONFIG_FLOW
+
+
+def test_room_options_do_not_offer_local_mode_or_profile_overrides():
+    menu_body = _method_body(CONFIG_FLOW, "async def async_step_init", "# ── Global defaults edit")
+    settings_body = _method_body(CONFIG_FLOW, "async def async_step_edit_settings", "# ── Save")
+    assert "edit_room_presets" not in menu_body
+    assert "CONF_USE_GLOBAL_PRESETS" not in menu_body
+    assert "CONF_MODE_HOME" in settings_body
+    assert "_preset_schema" not in CONFIG_FLOW
+
+
+def test_device_activation_points_are_role_limited_selects():
+    body = _method_body(CONFIG_FLOW, "async def async_step_device_temp_config", "# ── Step 2b")
+    assert "_activation_point_selector" in body
+    assert "ROLE_HEATING" in body
+    assert "-5" in body and "0" in body and "5" in body
+    activation_field = body.split("CONF_DEVICE_ACTIVATION_POINT", 1)[1].split("CONF_DEVICE_DEACTIVATE_OFFSET", 1)[0]
+    assert "_activation_point_selector" in activation_field
+    assert "NumberSelector" not in activation_field
+
+
+def test_emergency_enabled_device_flag_is_collected_and_used_for_safety_limits():
+    assert 'CONF_DEVICE_EMERGENCY_ENABLED = "emergency_enabled"' in CONST
+    assert "CONF_DEVICE_EMERGENCY_ENABLED" in CONFIG_FLOW
+    assert "emergency_enabled" in CLIMATE
+    assert "minimum_temperature" in CLIMATE
+    assert "maximum_temperature" in CLIMATE
+
+
+def test_hacs_metadata_declares_climate_comfort_integration():
+    hacs_path = ROOT / "hacs.json"
+    assert hacs_path.exists()
+    hacs = json.loads(hacs_path.read_text())
+    assert hacs["name"] == "Climate Comfort"
+    assert hacs["domains"] == ["climate_comfort"]
+    assert hacs["homeassistant"] == MANIFEST["min_homeassistant_version"]
+    assert hacs.get("render_readme") is True
+
+
+def test_manifest_has_hacs_friendly_repository_metadata():
+    assert MANIFEST["domain"] == "climate_comfort"
+    assert MANIFEST["name"] == "Climate Comfort"
+    assert MANIFEST["codeowners"] == ["@bjscuba135"]
+    assert MANIFEST["documentation"] == "https://github.com/bjscuba135/climate-comfort"
+    assert MANIFEST["issue_tracker"] == "https://github.com/bjscuba135/climate-comfort/issues"
+
+
+def test_readme_documents_hacs_custom_repository_install_and_manual_migration():
+    assert "HACS support coming soon" not in README
+    assert "https://github.com/bjscuba135/climate-comfort" in README
+    assert "Custom repositories" in README
+    assert "climate_comfort.old" in README

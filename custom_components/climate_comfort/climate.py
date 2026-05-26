@@ -15,13 +15,7 @@ from homeassistant.components.climate import (
     HVACAction,
     HVACMode,
 )
-from homeassistant.components.climate.const import (
-    PRESET_AWAY,
-    PRESET_BOOST,
-    PRESET_COMFORT,
-    PRESET_ECO,
-    PRESET_NONE,
-)
+from homeassistant.components.climate.const import PRESET_NONE
 from homeassistant.components.climate import ATTR_TARGET_TEMP_HIGH, ATTR_TARGET_TEMP_LOW
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -43,9 +37,12 @@ from .const import (
     ATTR_LOWER_THRESHOLD,
     ATTR_UPPER_THRESHOLD,
     CONF_COMFORT_ZONE,
+    CONF_DEFAULT_PROFILE,
     CONF_DEVICE_ACTIVATE_OFFSET,
+    CONF_DEVICE_ACTIVATION_POINT,
     CONF_DEVICE_DEACTIVATE_OFFSET,
     CONF_DEVICE_DEHUMIDIFY_ONLY_WHEN_IDLE,
+    CONF_DEVICE_EMERGENCY_ENABLED,
     CONF_DEVICE_ENTITY,
     CONF_DEVICE_HUMIDITY_HYSTERESIS,
     CONF_DEVICE_HUMIDITY_THRESHOLD,
@@ -58,25 +55,64 @@ from .const import (
     CONF_HOUSE_MODE_ENTITY,
     CONF_HUMIDITY_SENSOR,
     CONF_HVAC_MODES,
-    CONF_PRESET_AWAY_HIGH,
-    CONF_PRESET_AWAY_LOW,
-    CONF_PRESET_BOOST,
-    CONF_PRESET_COMFORT,
-    CONF_PRESET_ECO,
+    CONF_MAXIMUM_TEMPERATURE,
+    CONF_MINIMUM_TEMPERATURE,
+    CONF_MODE_AWAY,
+    CONF_MODE_AWAY_PROFILE,
+    CONF_MODE_COOLDOWN,
+    CONF_MODE_COOLDOWN_PROFILE,
+    CONF_MODE_HOME,
+    CONF_MODE_HOME_PROFILE,
+    CONF_MODE_SLEEP,
+    CONF_MODE_SLEEP_PROFILE,
+    CONF_MODE_WARMUP,
+    CONF_MODE_WARMUP_PROFILE,
     CONF_MANUAL_HOLD_HOURS,
     CONF_TEMPERATURE_SENSOR,
     CONF_USE_GLOBAL_PRESETS,
+    CONF_PROFILE_AGGRESSIVE_COMFORT_MULTIPLIER,
+    CONF_PROFILE_AGGRESSIVE_POINT_SPACING,
+    CONF_PROFILE_BALANCED_COMFORT_MULTIPLIER,
+    CONF_PROFILE_BALANCED_POINT_SPACING,
+    CONF_PROFILE_RELAXED_COMFORT_MULTIPLIER,
+    CONF_PROFILE_RELAXED_POINT_SPACING,
+    CONF_PROFILE_RESPONSIVE_COMFORT_MULTIPLIER,
+    CONF_PROFILE_RESPONSIVE_POINT_SPACING,
     DEFAULT_MANUAL_HOLD_HOURS,
     DEFAULT_MAX_TEMP,
     DEFAULT_MIN_TEMP,
-    DEFAULT_PRESET_AWAY_HIGH,
-    DEFAULT_PRESET_AWAY_LOW,
-    DEFAULT_PRESET_BOOST,
-    DEFAULT_PRESET_COMFORT,
-    DEFAULT_PRESET_ECO,
+    DEFAULT_MODE_AWAY,
+    DEFAULT_MODE_COOLDOWN,
+    DEFAULT_MODE_HOME,
+    DEFAULT_MODE_PROFILE_AWAY,
+    DEFAULT_MODE_PROFILE_COOLDOWN,
+    DEFAULT_MODE_PROFILE_HOME,
+    DEFAULT_MODE_PROFILE_SLEEP,
+    DEFAULT_MODE_PROFILE_WARMUP,
+    DEFAULT_MODE_SLEEP,
+    DEFAULT_MODE_WARMUP,
+    DEFAULT_PROFILE,
+    DEFAULT_PROFILE_AGGRESSIVE_COMFORT_MULTIPLIER,
+    DEFAULT_PROFILE_AGGRESSIVE_POINT_SPACING,
+    DEFAULT_PROFILE_BALANCED_COMFORT_MULTIPLIER,
+    DEFAULT_PROFILE_BALANCED_POINT_SPACING,
+    DEFAULT_PROFILE_RELAXED_COMFORT_MULTIPLIER,
+    DEFAULT_PROFILE_RELAXED_POINT_SPACING,
+    DEFAULT_PROFILE_RESPONSIVE_COMFORT_MULTIPLIER,
+    DEFAULT_PROFILE_RESPONSIVE_POINT_SPACING,
     DEFAULT_TEMP_STEP,
     DOMAIN,
     ENTRY_TYPE_GLOBAL,
+    MODE_AWAY,
+    MODE_COOLDOWN,
+    MODE_HOME,
+    MODE_OPTIONS,
+    MODE_SLEEP,
+    MODE_WARMUP,
+    PROFILE_AGGRESSIVE,
+    PROFILE_BALANCED,
+    PROFILE_RELAXED,
+    PROFILE_RESPONSIVE,
     ROLE_COOLING,
     ROLE_DEHUMIDIFY,
     ROLE_HEATING,
@@ -90,11 +126,41 @@ _HVAC_MODE_MAP: dict[str, HVACMode] = {
     "cool": HVACMode.COOL,
 }
 
-_HOUSE_MODE_TO_PRESET: dict[str, str] = {
-    "eco": PRESET_ECO,
-    "comfort": PRESET_COMFORT,
-    "boost": PRESET_BOOST,
-    "away": PRESET_AWAY,
+_HOUSE_MODE_TO_PRESET: dict[str, str] = {mode: mode for mode in MODE_OPTIONS}
+
+_PROFILE_CONFIG = {
+    PROFILE_RELAXED: (
+        CONF_PROFILE_RELAXED_COMFORT_MULTIPLIER,
+        CONF_PROFILE_RELAXED_POINT_SPACING,
+        DEFAULT_PROFILE_RELAXED_COMFORT_MULTIPLIER,
+        DEFAULT_PROFILE_RELAXED_POINT_SPACING,
+    ),
+    PROFILE_BALANCED: (
+        CONF_PROFILE_BALANCED_COMFORT_MULTIPLIER,
+        CONF_PROFILE_BALANCED_POINT_SPACING,
+        DEFAULT_PROFILE_BALANCED_COMFORT_MULTIPLIER,
+        DEFAULT_PROFILE_BALANCED_POINT_SPACING,
+    ),
+    PROFILE_RESPONSIVE: (
+        CONF_PROFILE_RESPONSIVE_COMFORT_MULTIPLIER,
+        CONF_PROFILE_RESPONSIVE_POINT_SPACING,
+        DEFAULT_PROFILE_RESPONSIVE_COMFORT_MULTIPLIER,
+        DEFAULT_PROFILE_RESPONSIVE_POINT_SPACING,
+    ),
+    PROFILE_AGGRESSIVE: (
+        CONF_PROFILE_AGGRESSIVE_COMFORT_MULTIPLIER,
+        CONF_PROFILE_AGGRESSIVE_POINT_SPACING,
+        DEFAULT_PROFILE_AGGRESSIVE_COMFORT_MULTIPLIER,
+        DEFAULT_PROFILE_AGGRESSIVE_POINT_SPACING,
+    ),
+}
+
+_MODE_CONFIG = {
+    MODE_AWAY: (CONF_MODE_AWAY, CONF_MODE_AWAY_PROFILE, DEFAULT_MODE_AWAY, DEFAULT_MODE_PROFILE_AWAY),
+    MODE_SLEEP: (CONF_MODE_SLEEP, CONF_MODE_SLEEP_PROFILE, DEFAULT_MODE_SLEEP, DEFAULT_MODE_PROFILE_SLEEP),
+    MODE_HOME: (CONF_MODE_HOME, CONF_MODE_HOME_PROFILE, DEFAULT_MODE_HOME, DEFAULT_MODE_PROFILE_HOME),
+    MODE_WARMUP: (CONF_MODE_WARMUP, CONF_MODE_WARMUP_PROFILE, DEFAULT_MODE_WARMUP, DEFAULT_MODE_PROFILE_WARMUP),
+    MODE_COOLDOWN: (CONF_MODE_COOLDOWN, CONF_MODE_COOLDOWN_PROFILE, DEFAULT_MODE_COOLDOWN, DEFAULT_MODE_PROFILE_COOLDOWN),
 }
 
 
@@ -148,8 +214,15 @@ class _Device:
         self.role: str = data[CONF_DEVICE_ROLE]
 
         # Temperature escalation fields (heating/cooling roles)
-        self.activate_offset: float = float(data.get(CONF_DEVICE_ACTIVATE_OFFSET, 0.0))
+        if CONF_DEVICE_ACTIVATION_POINT in data:
+            self.activation_point: int = int(data.get(CONF_DEVICE_ACTIVATION_POINT, 0))
+        else:
+            # Backward compatibility: old activate_offset was degrees beyond the boundary.
+            old_offset = float(data.get(CONF_DEVICE_ACTIVATE_OFFSET, 0.0))
+            self.activation_point = -int(round(old_offset)) if self.role == ROLE_HEATING else int(round(old_offset))
+        self.activate_offset: float = float(data.get(CONF_DEVICE_ACTIVATE_OFFSET, abs(self.activation_point)))
         self.deactivate_offset: float = float(data.get(CONF_DEVICE_DEACTIVATE_OFFSET, 0.5))
+        self.emergency_enabled: bool = bool(data.get(CONF_DEVICE_EMERGENCY_ENABLED, False))
         self.hvac_mode_on: str | None = data.get(CONF_DEVICE_HVAC_MODE_ON)
         # If set, service call also sets climate target = room_setpoint + this offset.
         # Use negative values for cooling (e.g. -3), positive for heating (e.g. +3).
@@ -230,16 +303,24 @@ class ClimateComfortEntity(ClimateEntity):
                 return float(v)
             return default
 
-        self._preset_temps: dict[str, float] = {
-            PRESET_ECO: _resolve(CONF_PRESET_ECO, DEFAULT_PRESET_ECO),
-            PRESET_COMFORT: _resolve(CONF_PRESET_COMFORT, DEFAULT_PRESET_COMFORT),
-            PRESET_BOOST: _resolve(CONF_PRESET_BOOST, DEFAULT_PRESET_BOOST),
-        }
-        self._away_low: float = _resolve(CONF_PRESET_AWAY_LOW, DEFAULT_PRESET_AWAY_LOW)
-        self._away_high: float = _resolve(CONF_PRESET_AWAY_HIGH, DEFAULT_PRESET_AWAY_HIGH)
+        self._minimum_temperature: float = float(g.get(CONF_MINIMUM_TEMPERATURE, DEFAULT_MIN_TEMP))
+        self._maximum_temperature: float = float(g.get(CONF_MAXIMUM_TEMPERATURE, DEFAULT_MAX_TEMP))
 
-        self._attr_preset_modes = [PRESET_NONE, PRESET_ECO, PRESET_COMFORT, PRESET_BOOST, PRESET_AWAY]
-        self._attr_preset_mode = PRESET_COMFORT
+        self._profile_settings: dict[str, tuple[float, float]] = {}
+        for profile, (comfort_key, spacing_key, comfort_default, spacing_default) in _PROFILE_CONFIG.items():
+            self._profile_settings[profile] = (
+                float(g.get(comfort_key, comfort_default)),
+                float(g.get(spacing_key, spacing_default)),
+            )
+
+        self._mode_temps: dict[str, float] = {}
+        self._mode_profiles: dict[str, str] = {}
+        for mode, (temp_key, profile_key, temp_default, profile_default) in _MODE_CONFIG.items():
+            self._mode_temps[mode] = _resolve(temp_key, temp_default)
+            self._mode_profiles[mode] = str(g.get(profile_key, cfg.get(profile_key, profile_default)))
+
+        self._attr_preset_modes = [PRESET_NONE, *MODE_OPTIONS]
+        self._attr_preset_mode = MODE_HOME
 
         self._devices: list[_Device] = [_Device(d) for d in devices_data]
 
@@ -277,7 +358,7 @@ class ClimateComfortEntity(ClimateEntity):
         # are treated as our own and don't trigger a manual hold.
         self._last_integration_touch: dict[str, float] = {}
 
-        self._attr_target_temperature: float = self._preset_temps[PRESET_COMFORT]
+        self._attr_target_temperature: float = self._mode_temps[MODE_HOME]
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -345,8 +426,7 @@ class ClimateComfortEntity(ClimateEntity):
             preset = _HOUSE_MODE_TO_PRESET.get(new_state.state.lower())
             if preset:
                 self._attr_preset_mode = preset
-                if preset != PRESET_AWAY:
-                    self._attr_target_temperature = self._preset_temps[preset]
+                self._attr_target_temperature = self._mode_temps.get(preset, self._attr_target_temperature)
                 self.hass.async_create_task(self._evaluate_devices())
                 self.async_write_ha_state()
 
@@ -496,8 +576,19 @@ class ClimateComfortEntity(ClimateEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         lt, ut = self._thresholds()
+        active_profile = self._active_profile()
+        comfort_multiplier, point_spacing = self._profile_settings.get(
+            active_profile, self._profile_settings[PROFILE_BALANCED]
+        )
         attrs: dict[str, Any] = {
             ATTR_COMFORT_ZONE: self._comfort_zone,
+            "effective_comfort_zone": round(self._comfort_zone * comfort_multiplier, 2),
+            "mode": self._attr_preset_mode,
+            "profile": active_profile,
+            "comfort_multiplier": comfort_multiplier,
+            "point_spacing": point_spacing,
+            "minimum_temperature": self._minimum_temperature,
+            "maximum_temperature": self._maximum_temperature,
             ATTR_LOWER_THRESHOLD: round(lt, 2),
             ATTR_UPPER_THRESHOLD: round(ut, 2),
             ATTR_EFFECTIVE_SETPOINT: self._attr_target_temperature,
@@ -591,9 +682,9 @@ class ClimateComfortEntity(ClimateEntity):
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         self._attr_preset_mode = preset_mode
-        if preset_mode not in (PRESET_NONE, PRESET_AWAY):
-            self._attr_target_temperature = self._preset_temps[preset_mode]
-            # Restore the configured comfort zone so slider drags don't silently
+        if preset_mode not in (PRESET_NONE,):
+            self._attr_target_temperature = self._mode_temps.get(preset_mode, self._attr_target_temperature)
+            # Restore the configured base comfort zone so slider drags don't silently
             # inherit a modified zone. Reads from global defaults when active.
             g = _get_global_config(self.hass)
             use_global = bool(self._entry.data.get(CONF_USE_GLOBAL_PRESETS, False))
@@ -648,11 +739,21 @@ class ClimateComfortEntity(ClimateEntity):
     # Core control logic
     # ------------------------------------------------------------------
 
+    def _active_profile(self) -> str:
+        if self._attr_preset_mode in self._mode_profiles:
+            return self._mode_profiles[self._attr_preset_mode]
+        return str(self._entry.data.get(CONF_DEFAULT_PROFILE, DEFAULT_PROFILE))
+
+    def _profile_comfort_multiplier(self) -> float:
+        return self._profile_settings.get(self._active_profile(), self._profile_settings[PROFILE_BALANCED])[0]
+
+    def _profile_point_spacing(self) -> float:
+        return self._profile_settings.get(self._active_profile(), self._profile_settings[PROFILE_BALANCED])[1]
+
     def _thresholds(self) -> tuple[float, float]:
-        if self._attr_preset_mode == PRESET_AWAY:
-            return self._away_low, self._away_high
         sp = self._attr_target_temperature
-        return sp - self._comfort_zone, sp + self._comfort_zone
+        effective_comfort_zone = self._comfort_zone * self._profile_comfort_multiplier()
+        return sp - effective_comfort_zone, sp + effective_comfort_zone
 
     async def _evaluate_devices(self) -> None:
         # Check for manual changes before doing anything else.
@@ -669,6 +770,9 @@ class ClimateComfortEntity(ClimateEntity):
             return
 
         lt, ut = self._thresholds()
+        point_spacing = self._profile_point_spacing()
+        emergency_heat = current <= self._minimum_temperature
+        emergency_cool = current >= self._maximum_temperature
         mode_allows_heating = self._attr_hvac_mode in (HVACMode.HEAT, HVACMode.HEAT_COOL)
         mode_allows_cooling = self._attr_hvac_mode in (HVACMode.COOL, HVACMode.HEAT_COOL)
         any_heating = False
@@ -694,9 +798,10 @@ class ClimateComfortEntity(ClimateEntity):
             if self._is_in_manual_hold(device.entity_id):
                 continue  # manual hold in effect — don't touch this device
             if device.role == ROLE_HEATING and mode_allows_heating:
-                activate_at = lt - device.activate_offset
+                activate_at = lt + (device.activation_point * point_spacing)
                 deactivate_at = activate_at + device.deactivate_offset
-                if current <= activate_at and not device.is_active:
+                should_activate = current <= activate_at or (emergency_heat and device.emergency_enabled)
+                if should_activate and not device.is_active:
                     await self._activate_device(device)
                 elif current >= deactivate_at and device.is_active:
                     await self._deactivate_device(device)
@@ -704,9 +809,10 @@ class ClimateComfortEntity(ClimateEntity):
                     any_heating = True
 
             elif device.role == ROLE_COOLING and mode_allows_cooling:
-                activate_at = ut + device.activate_offset
+                activate_at = ut + (device.activation_point * point_spacing)
                 deactivate_at = activate_at - device.deactivate_offset
-                if current >= activate_at and not device.is_active:
+                should_activate = current >= activate_at or (emergency_cool and device.emergency_enabled)
+                if should_activate and not device.is_active:
                     await self._activate_device(device)
                 elif current <= deactivate_at and device.is_active:
                     await self._deactivate_device(device)
@@ -731,9 +837,9 @@ class ClimateComfortEntity(ClimateEntity):
                     if not mode_allows_heating:
                         stage.is_active = False
                         continue
-                    activate_at = lt - stage.activate_offset
+                    activate_at = lt + (stage.activation_point * point_spacing)
                     deactivate_at = activate_at + stage.deactivate_offset
-                    if current <= activate_at:
+                    if current <= activate_at or (emergency_heat and stage.emergency_enabled):
                         stage.is_active = True
                     elif current >= deactivate_at:
                         stage.is_active = False
@@ -742,16 +848,16 @@ class ClimateComfortEntity(ClimateEntity):
                     if not mode_allows_cooling:
                         stage.is_active = False
                         continue
-                    activate_at = ut + stage.activate_offset
+                    activate_at = ut + (stage.activation_point * point_spacing)
                     deactivate_at = activate_at - stage.deactivate_offset
-                    if current >= activate_at:
+                    if current >= activate_at or (emergency_cool and stage.emergency_enabled):
                         stage.is_active = True
                     elif current <= deactivate_at:
                         stage.is_active = False
 
             active_stages = [s for s in stages if s.is_active]
             winning = (
-                max(active_stages, key=lambda s: s.activate_offset)
+                max(active_stages, key=lambda s: abs(s.activation_point))
                 if active_stages else None
             )
             prev = self._active_climate_stage.get(entity_id)
@@ -830,10 +936,7 @@ class ClimateComfortEntity(ClimateEntity):
                     blocking=True,
                 )
                 if device.target_temp_offset is not None:
-                    if self._attr_preset_mode == PRESET_AWAY:
-                        ref = (self._away_low + self._away_high) / 2
-                    else:
-                        ref = self._attr_target_temperature
+                    ref = self._attr_target_temperature
                     magnitude = abs(device.target_temp_offset)
                     target = ref + magnitude if device.role == ROLE_HEATING else ref - magnitude
                     self._mark_integration_touch(device.entity_id)
