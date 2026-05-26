@@ -67,9 +67,11 @@ class GlobalPresetsSwitch(SwitchEntity):
     """
     Toggle whether this room inherits preset temperatures from Global Defaults.
 
-    On  → Eco / Comfort / Boost / Away temperatures come from the Global
-           Defaults entry; preset number entities are shown as unavailable.
-    Off → room uses its own locally configured preset temperatures.
+    On  → Sleep / Home / Comfort / Eco / Activity / Boost temperatures come from
+           the Defaults entry; Away always follows the shared minimum/maximum
+           safety bounds, and preset number entities are shown as unavailable.
+    Off → room uses its own locally configured preset temperatures, while Away
+           still follows the shared minimum/maximum safety bounds.
     """
 
     _attr_should_poll = False

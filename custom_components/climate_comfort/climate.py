@@ -149,7 +149,7 @@ _LEGACY_MODE_ALIASES: dict[str, str] = {
 
 
 def _enabled_modes_from_config(cfg: dict) -> list[str]:
-    enabled = [MODE_HOME]
+    enabled = [MODE_HOME, MODE_AWAY]
     for mode in OPTIONAL_MODE_OPTIONS:
         key = MODE_ENABLE_KEYS[mode]
         default = MODE_ENABLE_DEFAULTS[key]
@@ -294,7 +294,8 @@ class ClimateComfortEntity(ClimateEntity):
     Dehumidifier devices are evaluated independently against a humidity sensor,
     optionally only running when temperature control is idle.
 
-    Away mode uses an independent low/high protection band rather than a setpoint.
+    Away mode uses the configured global minimum and maximum temperatures as a
+    protection band rather than a custom editable setpoint.
     """
 
     _attr_has_entity_name = True
@@ -359,6 +360,9 @@ class ClimateComfortEntity(ClimateEntity):
         for mode, (temp_key, profile_key, temp_default, profile_default) in _MODE_CONFIG.items():
             self._mode_temps[mode] = _resolve(temp_key, temp_default)
             self._mode_profiles[mode] = str(g.get(profile_key, cfg.get(profile_key, profile_default)))
+        # Away exposes a midpoint setpoint for UI/attributes, but its actual control
+        # band always comes from the configured global minimum/maximum temperatures.
+        self._mode_temps[MODE_AWAY] = round((self._minimum_temperature + self._maximum_temperature) / 2, 1)
 
         mode_source = g or cfg
         self._enabled_modes = _enabled_modes_from_config(mode_source)
@@ -479,7 +483,10 @@ class ClimateComfortEntity(ClimateEntity):
             preset = _HOUSE_MODE_TO_PRESET.get(new_state.state.lower())
             if preset and preset in self._enabled_modes:
                 self._attr_preset_mode = preset
-                self._attr_target_temperature = self._mode_temps.get(preset, self._attr_target_temperature)
+                if preset == MODE_AWAY:
+                    self._attr_target_temperature = round((self._minimum_temperature + self._maximum_temperature) / 2, 1)
+                else:
+                    self._attr_target_temperature = self._mode_temps.get(preset, self._attr_target_temperature)
                 self.hass.async_create_task(self._evaluate_devices())
                 self.async_write_ha_state()
 
@@ -770,7 +777,9 @@ class ClimateComfortEntity(ClimateEntity):
         if preset_mode != PRESET_NONE and preset_mode not in self._attr_preset_modes:
             raise HomeAssistantError(f"Unsupported preset mode: {preset_mode}")
         self._attr_preset_mode = preset_mode
-        if preset_mode not in (PRESET_NONE,):
+        if preset_mode == MODE_AWAY:
+            self._attr_target_temperature = round((self._minimum_temperature + self._maximum_temperature) / 2, 1)
+        elif preset_mode not in (PRESET_NONE,):
             self._attr_target_temperature = self._mode_temps.get(preset_mode, self._attr_target_temperature)
             # Restore the configured base comfort zone so slider drags don't silently
             # inherit a modified zone. Reads from global defaults when active.
@@ -866,6 +875,8 @@ class ClimateComfortEntity(ClimateEntity):
         return abs(device.activation_point) * spacing
 
     def _thresholds(self) -> tuple[float, float]:
+        if self._attr_preset_mode == MODE_AWAY:
+            return self._minimum_temperature, self._maximum_temperature
         sp = self._attr_target_temperature
         effective_comfort_zone = self._comfort_zone * self._profile_comfort_multiplier()
         return sp - effective_comfort_zone, sp + effective_comfort_zone

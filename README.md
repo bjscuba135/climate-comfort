@@ -45,9 +45,9 @@ Climate Comfort creates a **virtual thermostat** for each room. You tell it whic
 - **Comfort-zone deadband** — no devices run while the room is within ±X °C of the setpoint, avoiding constant micro-cycling
 - **Multi-stage escalation** — add multiple devices to a room; each stage fires at a different distance from the boundary (e.g. a fan at the boundary, an air conditioner 3°C beyond it)
 - **Built-in Home Assistant presets** — supports `away`, `sleep`, `home`, `comfort`, `eco`, `activity`, and `boost`
-- **Preset availability toggles** — choose which optional presets appear in the climate entity and House / Floor Mode selectors; `home` and `none` are always available
-- **Mode-specific temperatures and aggressiveness** — each built-in preset can have its own target temperature and profile
-- **Away protection band** — Away mode uses independent low/high limits rather than a single setpoint; nothing runs while the room is inside the band
+- **Preset availability toggles** — choose which optional presets appear in the climate entity and House / Floor Mode selectors; `away`, `home`, and `none` are always available
+- **Mode-specific temperatures and aggressiveness** — each built-in preset can have its own target temperature and profile, except `away`, which always uses the global minimum/maximum safety temperatures as its heating/cooling boundaries
+- **Away protection band** — Away mode always uses the configured global minimum/maximum safety temperatures as its protection band; nothing runs while the room is inside the band
 - **Dehumidifier support** — humidity-based control independent of temperature, with optional suppression when heating/cooling is active
 - **Manual hold detection** — automatically detects when a device has been changed outside of automation and suspends control for a configurable period
 - **Global defaults** — share preset temperatures and comfort-zone width across all rooms; override per-room at any time
@@ -123,9 +123,9 @@ A **Global Settings** device is created containing the House Mode selector and a
 
 Default preset availability:
 
-- Always available: `none`, `home`
-- Enabled by default: `away`, `sleep`, `comfort`, `eco`
-- Disabled by default: `activity`, `boost`
+- Always available: `none`, `away`, `home`
+- Toggleable and enabled by default: `sleep`, `comfort`, `eco`
+- Toggleable and disabled by default: `activity`, `boost`
 
 ---
 
@@ -215,7 +215,7 @@ Climate Comfort uses built-in Home Assistant climate presets for the room thermo
 | Preset | Behaviour |
 |---|---|
 | **None** | Uses whatever temperature was last set manually on the thermostat card |
-| **Away** | Lower occupied expectation / protection-oriented target |
+| **Away** | Protection-oriented band that always uses the configured global minimum and maximum temperatures as the heating/cooling thresholds |
 | **Sleep** | Cooler or quieter overnight target |
 | **Home** | Default occupied target and the fallback mode that is always available |
 | **Comfort** | Warmer / more comfortable occupied target |
@@ -225,12 +225,12 @@ Climate Comfort uses built-in Home Assistant climate presets for the room thermo
 
 Preset availability is configurable in **Global Defaults → Mode temperatures**:
 
-- `none` and `home` are always available
-- Optional presets can be turned on or off individually
+- `none`, `away`, and `home` are always available
+- Optional presets (`sleep`, `comfort`, `eco`, `activity`, `boost`) can be turned on or off individually
 - House Mode / Floor Mode selectors only show presets that are enabled
 - Room thermostats reject disabled presets if a dashboard or automation tries to set one
 
-Preset temperatures can be edited live from the number entities on the device page. `Activity Temperature` and `Boost Temperature` are created disabled by default in the entity registry so they can be surfaced only when wanted.
+Preset temperatures can be edited live from the number entities on the device page. `Away` is not exposed as an editable temperature because it always inherits the global minimum/maximum safety bounds. `Activity Temperature` and `Boost Temperature` are created disabled by default in the entity registry so they can be surfaced only when wanted.
 
 ---
 
@@ -285,7 +285,7 @@ Set the hold period to `0` to disable this feature entirely.
 
 ### House and Floor Mode
 
-The **Global Defaults** entry creates a **House Mode** select entity whose options are built from the currently enabled presets. `home` is always present, while optional presets such as `away`, `sleep`, `comfort`, `eco`, `activity`, and `boost` appear only when enabled in Global Defaults.
+The **Global Defaults** entry creates a **House Mode** select entity whose options are built from the currently enabled presets. `away` and `home` are always present, while optional presets such as `sleep`, `comfort`, `eco`, `activity`, and `boost` appear only when enabled in Global Defaults.
 
 If you added floor names to Global Defaults, each floor also gets its own **Floor Mode** selector. When House Mode changes it cascades to every floor, but you can override individual floors independently.
 
@@ -304,7 +304,7 @@ In the room's settings, set *House / floor mode entity* to either the House Mode
 | *(Room name)* | `climate` | The main thermostat — shows current temperature, HVAC action, setpoint, preset, and rich diagnostic attributes such as thresholds, effective comfort zone, active profile, point spacing, and any manual holds |
 | *(Device label) (<trigger temp>)* | `binary_sensor` | One per configured device — Running when active, Idle otherwise. Attributes include trigger temperatures and manual override status |
 | **Comfort Zone** | `number` | Live-editable deadband half-width |
-| **Away / Sleep / Home / Comfort / Eco Temperature** | `number` | Core mode temperatures shown by default |
+| **Sleep / Home / Comfort / Eco Temperature** | `number` | Core mode temperatures shown by default; Away always inherits the configured minimum / maximum safety bounds instead |
 | **Activity Temperature** | `number` | Optional live-editable preset temperature; disabled by default in the entity registry |
 | **Boost Temperature** | `number` | Optional live-editable preset temperature; disabled by default in the entity registry |
 | **Using Global Presets** | `switch` | Toggle whether this room inherits shared mode temperatures from Global Defaults |
@@ -329,8 +329,8 @@ The simplest setup — one radiator or electric heater turns on when the room dr
 **Add a second heating stage for a backup device:**
 Set the second device's activate offset higher (e.g. 2 °C). The backup only fires if the primary hasn't managed to bring the room up within 2 °C of the boundary — useful for slow systems.
 
-**Use Away mode for frost protection:**
-Set the Away temperature low enough to protect the room while still reducing normal runtime.
+**Use Away mode for protection:**
+Away always uses the configured global minimum and maximum temperatures, so tune those safety bounds to match how far the room is allowed to drift while unoccupied.
 
 **Global Defaults + per-room override:**
 Create Global Defaults with your typical temperatures. Turn on *Use global preset temperatures* for every room. For a room that runs warmer (e.g. a home office), open its options, go to *Edit mode temperatures*, and set custom values — the *Using Global Presets* switch turns off automatically.

@@ -67,9 +67,12 @@ def test_fixed_mode_names_use_home_assistant_icon_backed_presets():
     assert 'MODE_ACTIVITY = "activity"' in CONST
     assert 'MODE_BOOST = "boost"' in CONST
     assert 'MODE_OPTIONS = [MODE_AWAY, MODE_SLEEP, MODE_HOME, MODE_WARMUP, MODE_COOLDOWN, MODE_ACTIVITY, MODE_BOOST]' in CONST
-    assert 'OPTIONAL_MODE_OPTIONS = [MODE_AWAY, MODE_SLEEP, MODE_WARMUP, MODE_COOLDOWN, MODE_ACTIVITY, MODE_BOOST]' in CONST
+    assert 'OPTIONAL_MODE_OPTIONS = [MODE_SLEEP, MODE_WARMUP, MODE_COOLDOWN, MODE_ACTIVITY, MODE_BOOST]' in CONST
     assert 'MODE_ENABLE_KEYS = {' in CONST
+    assert 'MODE_AWAY: CONF_MODE_AWAY_ENABLED' not in CONST
     assert 'MODE_ENABLE_DEFAULTS = {' in CONST
+    assert 'CONF_MODE_AWAY_ENABLED: DEFAULT_MODE_AWAY_ENABLED' not in CONST
+    assert 'DEFAULT_MODE_AWAY_ENABLED = True' not in CONST
     assert 'DEFAULT_MODE_ACTIVITY_ENABLED = False' in CONST
     assert 'DEFAULT_MODE_BOOST_ENABLED = False' in CONST
     assert '_enabled_house_mode_options' in SELECT
@@ -103,7 +106,6 @@ def test_new_room_setup_requires_global_defaults_and_uses_modes_not_legacy_prese
 
 def test_room_options_offer_local_aggressiveness_without_local_mode_temperature_overrides():
     menu_body = _method_body(CONFIG_FLOW, "async def async_step_init", "# ── Global defaults edit")
-    settings_body = _method_body(CONFIG_FLOW, "async def async_step_edit_settings", "# ── Save")
     assert "edit_room_presets" not in menu_body
     assert "edit_room_aggressiveness" in menu_body
     assert "CONF_USE_GLOBAL_PRESETS" not in menu_body
@@ -122,22 +124,28 @@ def test_global_defaults_options_are_split_into_sub_pages_with_mode_temperature_
     assert "mode_home" in global_strings["edit_global_modes"]["data"]
     assert "mode_activity" in global_strings["edit_global_modes"]["data"]
     assert "mode_boost" in global_strings["edit_global_modes"]["data"]
-    assert "mode_away_enabled" in global_strings["edit_global_modes"]["data"]
+    assert "mode_away" not in global_strings["edit_global_modes"]["data"]
+    assert "mode_away_enabled" not in global_strings["edit_global_modes"]["data"]
     assert "mode_activity_enabled" in global_strings["edit_global_modes"]["data"]
     assert "mode_boost_enabled" in global_strings["edit_global_modes"]["data"]
     assert "edit_global_modes" in TRANSLATIONS["options"]["step"]
     assert "mode_home" in TRANSLATIONS["options"]["step"]["edit_global_modes"]["data"]
     assert "mode_activity" in TRANSLATIONS["options"]["step"]["edit_global_modes"]["data"]
     assert "mode_boost" in TRANSLATIONS["options"]["step"]["edit_global_modes"]["data"]
-    assert "mode_away_enabled" in TRANSLATIONS["options"]["step"]["edit_global_modes"]["data"]
+    assert "mode_away" not in TRANSLATIONS["options"]["step"]["edit_global_modes"]["data"]
+    assert "mode_away_enabled" not in TRANSLATIONS["options"]["step"]["edit_global_modes"]["data"]
     assert "mode_activity_enabled" in TRANSLATIONS["options"]["step"]["edit_global_modes"]["data"]
     assert "mode_boost_enabled" in TRANSLATIONS["options"]["step"]["edit_global_modes"]["data"]
 
     modes_body = _method_body(CONFIG_FLOW, "async def async_step_edit_global_modes", "async def async_step_edit_global_profiles")
     assert "_mode_schema(cfg)" in modes_body
     assert "async_update_entry" in modes_body
+    assert "CONF_MODE_AWAY_PROFILE" in CONFIG_FLOW
+    assert "CONF_MODE_AWAY_ENABLED" not in modes_body
     assert "CONF_MODE_ACTIVITY_ENABLED" in CONFIG_FLOW
     assert "CONF_MODE_BOOST_ENABLED" in CONFIG_FLOW
+    assert "Away always uses the configured minimum and maximum safety temperatures" in STRINGS["options"]["step"]["edit_global_modes"]["description"]
+    assert "Away safety band" in TRANSLATIONS["config"]["step"]["global_defaults"]["data"]["mode_away"]
 
 
 def test_room_aggressiveness_page_persists_room_profile_settings_and_climate_uses_them():
@@ -316,6 +324,8 @@ def test_readme_documents_hacs_custom_repository_install_and_manual_migration():
     assert "custom_components/comfort_climate" in README
     assert "Home Assistant integration domain remains `comfort_climate`" in README
     assert "HACS installs it locally as `custom_components/comfort_climate`" in README
+    assert "Sleep / Home / Comfort / Eco Temperature" in README
+    assert "Away always uses the configured global minimum and maximum temperatures" in README
 
 
 def test_repository_package_installs_as_comfort_climate_for_existing_config_entries():

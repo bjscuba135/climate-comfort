@@ -32,7 +32,6 @@ from .const import (
     CONF_MINIMUM_TEMPERATURE,
     CONF_MODE_AWAY,
     CONF_MODE_AWAY_PROFILE,
-    CONF_MODE_AWAY_ENABLED,
     CONF_MODE_ACTIVITY,
     CONF_MODE_ACTIVITY_PROFILE,
     CONF_MODE_ACTIVITY_ENABLED,
@@ -77,7 +76,6 @@ from .const import (
     DEFAULT_MODE_PROFILE_HOME,
     DEFAULT_MODE_PROFILE_SLEEP,
     DEFAULT_MODE_PROFILE_WARMUP,
-    DEFAULT_MODE_AWAY_ENABLED,
     DEFAULT_MODE_ACTIVITY_ENABLED,
     DEFAULT_MODE_BOOST_ENABLED,
     DEFAULT_MODE_COOLDOWN_ENABLED,
@@ -267,9 +265,7 @@ def _single_profile_fields(profile: str, cfg: dict | None = None) -> dict:
 def _mode_schema(cfg: dict | None = None) -> vol.Schema:
     cfg = cfg or {}
     return vol.Schema({
-        vol.Required(CONF_MODE_AWAY, default=float(cfg.get(CONF_MODE_AWAY, DEFAULT_MODE_AWAY))): _num(5, 30, step=0.1),
         vol.Required(CONF_MODE_AWAY_PROFILE, default=cfg.get(CONF_MODE_AWAY_PROFILE, DEFAULT_MODE_PROFILE_AWAY)): _profile_selector(),
-        vol.Required(CONF_MODE_AWAY_ENABLED, default=bool(cfg.get(CONF_MODE_AWAY_ENABLED, DEFAULT_MODE_AWAY_ENABLED))): selector.BooleanSelector(),
         vol.Required(CONF_MODE_SLEEP, default=float(cfg.get(CONF_MODE_SLEEP, DEFAULT_MODE_SLEEP))): _num(5, 30, step=0.1),
         vol.Required(CONF_MODE_SLEEP_PROFILE, default=cfg.get(CONF_MODE_SLEEP_PROFILE, DEFAULT_MODE_PROFILE_SLEEP)): _profile_selector(),
         vol.Required(CONF_MODE_SLEEP_ENABLED, default=bool(cfg.get(CONF_MODE_SLEEP_ENABLED, DEFAULT_MODE_SLEEP_ENABLED))): selector.BooleanSelector(),
@@ -355,7 +351,7 @@ class ClimateComfortConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._data[CONF_ENTRY_TYPE] = ENTRY_TYPE_ROOM
             self._data[CONF_USE_GLOBAL_PRESETS] = True
             for key in (
-                CONF_MODE_AWAY, CONF_MODE_AWAY_PROFILE, CONF_MODE_AWAY_ENABLED,
+                CONF_MODE_AWAY, CONF_MODE_AWAY_PROFILE,
                 CONF_MODE_SLEEP, CONF_MODE_SLEEP_PROFILE, CONF_MODE_SLEEP_ENABLED,
                 CONF_MODE_HOME, CONF_MODE_HOME_PROFILE,
                 CONF_MODE_WARMUP, CONF_MODE_WARMUP_PROFILE, CONF_MODE_WARMUP_ENABLED,

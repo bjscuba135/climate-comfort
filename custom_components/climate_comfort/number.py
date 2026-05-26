@@ -10,7 +10,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import (
     CONF_COMFORT_ZONE,
     CONF_ENTRY_TYPE,
-    CONF_MODE_AWAY,
     CONF_MODE_ACTIVITY,
     CONF_MODE_BOOST,
     CONF_MODE_COOLDOWN,
@@ -19,7 +18,6 @@ from .const import (
     CONF_MODE_WARMUP,
     CONF_USE_GLOBAL_PRESETS,
     DEFAULT_COMFORT_ZONE,
-    DEFAULT_MODE_AWAY,
     DEFAULT_MODE_ACTIVITY,
     DEFAULT_MODE_BOOST,
     DEFAULT_MODE_COOLDOWN,
@@ -28,7 +26,6 @@ from .const import (
     DEFAULT_MODE_WARMUP,
     DOMAIN,
     ENTRY_TYPE_GLOBAL,
-    MODE_AWAY,
     MODE_ACTIVITY,
     MODE_BOOST,
     MODE_COOLDOWN,
@@ -42,7 +39,6 @@ from .const import (
 # (key_suffix, name, config_key, default, icon, is_delta, enabled_by_default, min_v, max_v, step)
 _NUMBER_DEFS: list[tuple] = [
     ("comfort_zone",   "Comfort Zone",         CONF_COMFORT_ZONE,   DEFAULT_COMFORT_ZONE,   "mdi:swap-vertical-circle", True,  True,  0.1, 5.0,  0.1),
-    ("mode_away",      "Away Temperature",    CONF_MODE_AWAY,      DEFAULT_MODE_AWAY,      "mdi:home-export-outline",  False, True,  5.0, 30.0, 0.1),
     ("mode_sleep",     "Sleep Temperature",   CONF_MODE_SLEEP,     DEFAULT_MODE_SLEEP,     "mdi:sleep",                False, True,  5.0, 30.0, 0.1),
     ("mode_home",      "Home Temperature",    CONF_MODE_HOME,      DEFAULT_MODE_HOME,      "mdi:sofa",                 False, True,  5.0, 30.0, 0.1),
     ("mode_warmup",    "Comfort Temperature", CONF_MODE_WARMUP,    DEFAULT_MODE_WARMUP,    "mdi:sofa",                 False, True,  5.0, 30.0, 0.1),
@@ -53,7 +49,6 @@ _NUMBER_DEFS: list[tuple] = [
 
 # Map config keys to climate entity attribute names for live in-memory updates
 _PRESET_KEY_MAP = {
-    CONF_MODE_AWAY: MODE_AWAY,
     CONF_MODE_SLEEP: MODE_SLEEP,
     CONF_MODE_HOME: MODE_HOME,
     CONF_MODE_WARMUP: MODE_WARMUP,

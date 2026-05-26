@@ -15,6 +15,7 @@ from .const import (
     DOMAIN,
     ENTRY_TYPE_GLOBAL,
     ENTRY_TYPE_ROOM,
+    MODE_AWAY,
     MODE_COOLDOWN,
     MODE_ENABLE_DEFAULTS,
     MODE_ENABLE_KEYS,
@@ -38,7 +39,7 @@ _DATA_PROFILE_OVERRIDE = "profile_override"
 
 
 def _enabled_house_mode_options(cfg: dict) -> list[str]:
-    enabled = [MODE_HOME]
+    enabled = [MODE_HOME, MODE_AWAY]
     for mode in OPTIONAL_MODE_OPTIONS:
         key = MODE_ENABLE_KEYS[mode]
         default = MODE_ENABLE_DEFAULTS[key]

@@ -20,8 +20,8 @@
           "temperature_sensor": "The sensor whose reading drives all heating and cooling decisions for this room.",
           "humidity_sensor": "Optional. Only needed if you are adding a dehumidifier device to this room.",
           "comfort_zone": "Half-width of the dead zone either side of the target temperature (\u00b1\u00b0C). No devices run while the room is inside this band.",
-          "house_mode_entity": "Optional. A select entity (comfort / eco / boost / away) that overrides the active preset for this room. The **House Mode** entity created by the Global Defaults entry works here.",
-          "use_global_presets": "When on, Eco / Comfort / Boost / Away temperatures are inherited from the Global Defaults entry and the preset step is skipped."
+          "house_mode_entity": "Optional. A select entity (away / sleep / home / comfort / eco / activity / boost) that overrides the active preset for this room. The **House Mode** entity created by the Global Defaults entry works here.",
+          "use_global_presets": "When on, Sleep / Home / Comfort / Eco / Activity / Boost temperatures are inherited from the Global Defaults entry and the preset step is skipped. Away always follows the shared minimum / maximum safety temperatures."
         }
       },
       "presets": {
@@ -173,8 +173,8 @@
           "temperature_sensor": "**Temperature sensor:** drives all heating and cooling decisions for this room.",
           "humidity_sensor": "**Humidity sensor:** optional. Required only if a dehumidifier device is configured for this room.",
           "comfort_zone": "**Comfort zone width (\u00b1\u00b0C):** half-width of the dead zone either side of the target temperature. Nothing runs while the room is inside this band. For example, \u00b11 \u00b0C with a 21 \u00b0C setpoint creates a 20\u201322 \u00b0C dead zone.",
-          "house_mode_entity": "**House / floor mode entity:** optional. A select entity whose state (comfort / eco / boost / away) overrides the active preset for this room. The **House Mode** entity from the Global Defaults entry works here.",
-          "use_global_presets": "**Use global preset temperatures:** when on, Eco / Comfort / Boost / Away temperatures are inherited from the Global Defaults entry. Turning this off lets you set room-specific values.",
+          "house_mode_entity": "**House / floor mode entity:** optional. A select entity whose state (away / sleep / home / comfort / eco / activity / boost) overrides the active preset for this room. The **House Mode** entity from the Global Defaults entry works here.",
+          "use_global_presets": "**Use global preset temperatures:** when on, Sleep / Home / Comfort / Eco / Activity / Boost temperatures are inherited from the Global Defaults entry. Turning this off lets you set room-specific values. Away always follows the shared minimum / maximum safety temperatures.",
           "manual_hold_hours": "**Manual override hold period:** when any controlled device is changed by someone other than this integration (manually, via an automation, or voice control), automated control of that device is suspended for this many hours. 0 = disabled \u2014 the integration always controls devices regardless of manual changes.",
           "manual_hold_confirm_seconds": "How long a device state mismatch must persist before it is treated as a manual override. Increase this if holds trigger too easily because devices report state slowly."
         }
@@ -242,11 +242,9 @@
       },
       "edit_global_modes": {
         "title": "Global Defaults \u2014 Mode temperatures",
-        "description": "Target temperatures, aggressiveness profile, and availability used by each house mode.",
+        "description": "Target temperatures, aggressiveness profile, and availability used by each house mode. Away always uses the configured minimum and maximum safety temperatures.",
         "data": {
-          "mode_away": "Away temperature",
           "mode_away_profile": "Away aggressiveness",
-          "mode_away_enabled": "Enable Away mode",
           "mode_sleep": "Sleep temperature",
           "mode_sleep_profile": "Sleep aggressiveness",
           "mode_sleep_enabled": "Enable Sleep mode",
@@ -266,8 +264,7 @@
           "mode_boost_enabled": "Enable Boost mode"
         },
         "data_description": {
-          "mode_away": "Protection / away setpoint.",
-          "mode_away_enabled": "Turn the Away preset on or off in the generated selectors and climate entity.",
+          "mode_away_profile": "Aggressiveness profile used while Away is active. Temperature protection bounds come from the global minimum and maximum temperatures.",
           "mode_sleep": "Night-time target temperature.",
           "mode_sleep_enabled": "Turn the Sleep preset on or off in the generated selectors and climate entity.",
           "mode_home": "Normal occupied target temperature.",
