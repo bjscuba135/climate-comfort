@@ -2,14 +2,14 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-INTEGRATION_ROOT = ROOT / "custom_components/comfort_climate"
-CLIMATE = (INTEGRATION_ROOT / "climate.py").read_text()
-SWITCH = (INTEGRATION_ROOT / "switch.py").read_text()
-CONFIG_FLOW = (INTEGRATION_ROOT / "config_flow.py").read_text()
-CONST = (INTEGRATION_ROOT / "const.py").read_text()
-SELECT = (INTEGRATION_ROOT / "select.py").read_text()
+REPOSITORY_ROOT = ROOT / "custom_components/climate_comfort"
+CLIMATE = (REPOSITORY_ROOT / "climate.py").read_text()
+SWITCH = (REPOSITORY_ROOT / "switch.py").read_text()
+CONFIG_FLOW = (REPOSITORY_ROOT / "config_flow.py").read_text()
+CONST = (REPOSITORY_ROOT / "const.py").read_text()
+SELECT = (REPOSITORY_ROOT / "select.py").read_text()
 README = (ROOT / "README.md").read_text()
-MANIFEST = json.loads((INTEGRATION_ROOT / "manifest.json").read_text())
+MANIFEST = json.loads((REPOSITORY_ROOT / "manifest.json").read_text())
 
 
 def _method_body(source: str, marker: str, next_marker: str) -> str:
@@ -120,7 +120,10 @@ def test_hacs_metadata_declares_single_installable_comfort_climate_integration()
     assert hacs.get("render_readme") is True
 
     component_dirs = [p.name for p in (ROOT / "custom_components").iterdir() if p.is_dir()]
-    assert component_dirs == ["comfort_climate"]
+    assert component_dirs == ["climate_comfort"]
+    # HACS may cache the repository path from earlier releases as climate_comfort,
+    # but it installs locally using the manifest domain, which must remain
+    # comfort_climate for existing Home Assistant config entries.
 
 
 def test_manifest_has_hacs_friendly_repository_metadata():
@@ -137,14 +140,14 @@ def test_readme_documents_hacs_custom_repository_install_and_manual_migration():
     assert "Custom repositories" in README
     assert "custom_components/comfort_climate" in README
     assert "Home Assistant integration domain remains `comfort_climate`" in README
-    assert "custom_components/climate_comfort" not in README
+    assert "HACS installs it locally as `custom_components/comfort_climate`" in README
 
 
-def test_comfort_climate_package_is_importable_for_existing_config_entries():
-    assert INTEGRATION_ROOT.exists()
-    assert (INTEGRATION_ROOT / "__init__.py").exists()
+def test_repository_package_installs_as_comfort_climate_for_existing_config_entries():
+    assert REPOSITORY_ROOT.exists()
+    assert (REPOSITORY_ROOT / "__init__.py").exists()
     assert CONST.startswith('DOMAIN = "comfort_climate"')
     assert "legacy_domain" not in CONFIG_FLOW
 
     for platform in ["binary_sensor", "button", "climate", "number", "select", "switch"]:
-        assert (INTEGRATION_ROOT / f"{platform}.py").exists()
+        assert (REPOSITORY_ROOT / f"{platform}.py").exists()

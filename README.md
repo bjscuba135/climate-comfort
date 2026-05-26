@@ -56,11 +56,11 @@ Climate Comfort creates a **virtual thermostat** for each room. You tell it whic
 
 ### Manual
 
-1. Copy the `custom_components/comfort_climate` folder into the `custom_components` directory of your Home Assistant configuration.
+1. Copy the `custom_components/climate_comfort` folder into the `custom_components` directory of your Home Assistant configuration, then rename the copied folder to `comfort_climate` if you are installing manually.
 2. Restart Home Assistant.
 3. Go to **Settings → Devices & Services → Add Integration** and search for **Climate Comfort**.
 
-The project/display name is **Climate Comfort**, but the Home Assistant integration domain remains `comfort_climate` for compatibility with existing installs and config entries.
+The project/display name is **Climate Comfort**, but the Home Assistant integration domain remains `comfort_climate` for compatibility with existing installs and config entries. The repository folder remains `custom_components/climate_comfort` so HACS can update older HACS records, but HACS installs it locally as `custom_components/comfort_climate` because the manifest domain is `comfort_climate`.
 
 ### HACS
 
@@ -85,7 +85,7 @@ Home Assistant stores config entries by integration domain. To preserve existing
 custom_components/comfort_climate
 ```
 
-The repository/project has been renamed to **Climate Comfort**, but the integration domain remains `comfort_climate`. Do not rename the installed folder to `climate_comfort`; HACS installs only one integration folder and Home Assistant will continue to import `custom_components.comfort_climate` for existing config entries.
+The repository/project has been renamed to **Climate Comfort**, but the integration domain remains `comfort_climate`. For HACS compatibility the repository still contains the source under `custom_components/climate_comfort`; HACS reads that folder and installs it locally as `custom_components/comfort_climate` from the manifest domain.
 
 Recommended safe migration:
 
