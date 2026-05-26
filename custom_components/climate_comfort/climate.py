@@ -84,6 +84,7 @@ from .const import (
     CONF_PROFILE_RELAXED_POINT_SPACING,
     CONF_PROFILE_RESPONSIVE_COMFORT_MULTIPLIER,
     CONF_PROFILE_RESPONSIVE_POINT_SPACING,
+    DEFAULT_COMFORT_ZONE,
     DEFAULT_MANUAL_HOLD_HOURS,
     DEFAULT_MANUAL_HOLD_CONFIRM_SECONDS,
     DEFAULT_MAX_TEMP,
@@ -326,13 +327,17 @@ class ClimateComfortEntity(ClimateEntity):
         self._temp_sensor: str = cfg[CONF_TEMPERATURE_SENSOR]
         self._humidity_sensor: str | None = cfg.get(CONF_HUMIDITY_SENSOR)
         self._house_mode_entity: str | None = cfg.get(CONF_HOUSE_MODE_ENTITY)
-        self._comfort_zone: float = float(cfg.get(CONF_COMFORT_ZONE) or g.get(CONF_COMFORT_ZONE, 1.0))
 
         # Modes are inferred from the configured device roles; no manual selection needed.
         devices_data: list[dict] = opts.get(CONF_DEVICES, [])
         self._attr_hvac_modes = _infer_hvac_modes(devices_data)
 
         use_global = bool(cfg.get(CONF_USE_GLOBAL_PRESETS, False))
+        self._global_comfort_zone: float = float(g.get(CONF_COMFORT_ZONE, DEFAULT_COMFORT_ZONE))
+        self._local_comfort_zone: float = float(cfg.get(CONF_COMFORT_ZONE, self._global_comfort_zone))
+        self._comfort_zone: float = (
+            self._global_comfort_zone if use_global else self._local_comfort_zone
+        )
 
         def _resolve(key: str, default: float) -> float:
             # When "use global presets" is on, skip local values for preset keys
@@ -487,6 +492,7 @@ class ClimateComfortEntity(ClimateEntity):
                     self._attr_target_temperature = round((self._minimum_temperature + self._maximum_temperature) / 2, 1)
                 else:
                     self._attr_target_temperature = self._mode_temps.get(preset, self._attr_target_temperature)
+                self._restore_configured_comfort_zone()
                 self.hass.async_create_task(self._evaluate_devices())
                 self.async_write_ha_state()
 
@@ -779,18 +785,12 @@ class ClimateComfortEntity(ClimateEntity):
         self._attr_preset_mode = preset_mode
         if preset_mode == MODE_AWAY:
             self._attr_target_temperature = round((self._minimum_temperature + self._maximum_temperature) / 2, 1)
+            self._restore_configured_comfort_zone()
         elif preset_mode not in (PRESET_NONE,):
             self._attr_target_temperature = self._mode_temps.get(preset_mode, self._attr_target_temperature)
             # Restore the configured base comfort zone so slider drags don't silently
-            # inherit a modified zone. Reads from global defaults when active.
-            g = _get_global_config(self.hass)
-            use_global = bool(self._entry.data.get(CONF_USE_GLOBAL_PRESETS, False))
-            if use_global and CONF_COMFORT_ZONE in g:
-                self._comfort_zone = float(g[CONF_COMFORT_ZONE])
-            else:
-                self._comfort_zone = float(
-                    self._entry.data.get(CONF_COMFORT_ZONE, self._comfort_zone)
-                )
+            # inherit a modified zone.
+            self._restore_configured_comfort_zone()
         await self._evaluate_devices()
         self.async_write_ha_state()
 
@@ -847,6 +847,13 @@ class ClimateComfortEntity(ClimateEntity):
     # ------------------------------------------------------------------
     # Core control logic
     # ------------------------------------------------------------------
+
+    def _restore_configured_comfort_zone(self) -> None:
+        """Restore the configured comfort zone after transient slider adjustments."""
+        if bool(self._entry.data.get(CONF_USE_GLOBAL_PRESETS, False)):
+            self._comfort_zone = self._global_comfort_zone
+        else:
+            self._comfort_zone = self._local_comfort_zone
 
     def _active_profile(self) -> str:
         if self._profile_override:
