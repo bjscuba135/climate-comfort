@@ -252,7 +252,13 @@ class ClimateComfortConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._data: dict = {}
 
     async def async_step_user(self, user_input=None):
-        return self.async_abort(reason="legacy_domain")
+        return self.async_show_menu(
+            step_id="user",
+            menu_options={
+                "room": "Room thermostat",
+                "global_defaults": "Global defaults (shared preset temperatures)",
+            },
+        )
 
     # ── Room setup path ──────────────────────────────────────────────────────
 

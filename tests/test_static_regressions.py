@@ -2,13 +2,14 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CLIMATE = (ROOT / "custom_components/climate_comfort/climate.py").read_text()
-SWITCH = (ROOT / "custom_components/climate_comfort/switch.py").read_text()
-CONFIG_FLOW = (ROOT / "custom_components/climate_comfort/config_flow.py").read_text()
-CONST = (ROOT / "custom_components/climate_comfort/const.py").read_text()
-SELECT = (ROOT / "custom_components/climate_comfort/select.py").read_text()
+INTEGRATION_ROOT = ROOT / "custom_components/comfort_climate"
+CLIMATE = (INTEGRATION_ROOT / "climate.py").read_text()
+SWITCH = (INTEGRATION_ROOT / "switch.py").read_text()
+CONFIG_FLOW = (INTEGRATION_ROOT / "config_flow.py").read_text()
+CONST = (INTEGRATION_ROOT / "const.py").read_text()
+SELECT = (INTEGRATION_ROOT / "select.py").read_text()
 README = (ROOT / "README.md").read_text()
-MANIFEST = json.loads((ROOT / "custom_components/climate_comfort/manifest.json").read_text())
+MANIFEST = json.loads((INTEGRATION_ROOT / "manifest.json").read_text())
 
 
 def _method_body(source: str, marker: str, next_marker: str) -> str:
@@ -108,19 +109,22 @@ def test_emergency_enabled_device_flag_is_collected_and_used_for_safety_limits()
     assert "maximum_temperature" in CLIMATE
 
 
-def test_hacs_metadata_declares_climate_comfort_integration():
+def test_hacs_metadata_declares_single_installable_comfort_climate_integration():
     hacs_path = ROOT / "hacs.json"
     assert hacs_path.exists()
     hacs = json.loads(hacs_path.read_text())
     assert hacs["name"] == "Climate Comfort"
     assert "domains" not in hacs
-    assert MANIFEST["domain"] == "climate_comfort"
+    assert MANIFEST["domain"] == "comfort_climate"
     assert hacs["homeassistant"] == MANIFEST["min_homeassistant_version"]
     assert hacs.get("render_readme") is True
 
+    component_dirs = [p.name for p in (ROOT / "custom_components").iterdir() if p.is_dir()]
+    assert component_dirs == ["comfort_climate"]
+
 
 def test_manifest_has_hacs_friendly_repository_metadata():
-    assert MANIFEST["domain"] == "climate_comfort"
+    assert MANIFEST["domain"] == "comfort_climate"
     assert MANIFEST["name"] == "Climate Comfort"
     assert MANIFEST["codeowners"] == ["@bjscuba135"]
     assert MANIFEST["documentation"] == "https://github.com/bjscuba135/climate-comfort"
@@ -131,26 +135,16 @@ def test_readme_documents_hacs_custom_repository_install_and_manual_migration():
     assert "HACS support coming soon" not in README
     assert "https://github.com/bjscuba135/climate-comfort" in README
     assert "Custom repositories" in README
-    assert "climate_comfort.old" in README
-    assert "comfort_climate" in README
+    assert "custom_components/comfort_climate" in README
+    assert "Home Assistant integration domain remains `comfort_climate`" in README
+    assert "custom_components/climate_comfort" not in README
 
 
-def test_legacy_comfort_climate_package_is_present_for_existing_config_entries():
-    legacy_root = ROOT / "custom_components/comfort_climate"
-    assert legacy_root.exists()
-    legacy_manifest = json.loads((legacy_root / "manifest.json").read_text())
-    assert legacy_manifest["domain"] == "comfort_climate"
-    assert legacy_manifest["name"] == "Climate Comfort (Legacy)"
-    assert legacy_manifest["version"] == MANIFEST["version"]
-    assert (legacy_root / "const.py").read_text().startswith('DOMAIN = "comfort_climate"')
+def test_comfort_climate_package_is_importable_for_existing_config_entries():
+    assert INTEGRATION_ROOT.exists()
+    assert (INTEGRATION_ROOT / "__init__.py").exists()
+    assert CONST.startswith('DOMAIN = "comfort_climate"')
+    assert "legacy_domain" not in CONFIG_FLOW
 
     for platform in ["binary_sensor", "button", "climate", "number", "select", "switch"]:
-        assert (legacy_root / f"{platform}.py").exists()
-
-
-def test_legacy_comfort_climate_config_flow_disables_new_legacy_entries_but_keeps_options_flow():
-    legacy_flow = (ROOT / "custom_components/comfort_climate/config_flow.py").read_text()
-    assert 'DOMAIN = "comfort_climate"' in (ROOT / "custom_components/comfort_climate/const.py").read_text()
-    assert "ConfigFlow, domain=DOMAIN" in legacy_flow
-    assert "ClimateComfortOptionsFlow" in legacy_flow
-    assert "legacy_domain" in legacy_flow
+        assert (INTEGRATION_ROOT / f"{platform}.py").exists()

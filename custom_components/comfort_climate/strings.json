@@ -66,7 +66,6 @@
       }
     },
     "abort": {
-      "legacy_domain": "This legacy Climate Comfort domain is kept only so existing manual installs can load. Add new Climate Comfort entries with the current integration instead.",
       "global_already_configured": "Global defaults already exist — edit them via the Configure button.",
       "already_configured": "A room with this name already exists. Use a different name or edit the existing room."
     }

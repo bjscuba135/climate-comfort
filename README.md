@@ -56,9 +56,11 @@ Climate Comfort creates a **virtual thermostat** for each room. You tell it whic
 
 ### Manual
 
-1. Copy the `custom_components/climate_comfort` folder into the `custom_components` directory of your Home Assistant configuration.
+1. Copy the `custom_components/comfort_climate` folder into the `custom_components` directory of your Home Assistant configuration.
 2. Restart Home Assistant.
 3. Go to **Settings → Devices & Services → Add Integration** and search for **Climate Comfort**.
+
+The project/display name is **Climate Comfort**, but the Home Assistant integration domain remains `comfort_climate` for compatibility with existing installs and config entries.
 
 ### HACS
 
@@ -77,26 +79,25 @@ Climate Comfort can be installed with HACS as a custom repository until it is ac
 
 #### Updating from a manual install
 
-If you previously copied the integration over the local network, and it was installed as either:
+Home Assistant stores config entries by integration domain. To preserve existing entries and entity IDs, Climate Comfort keeps the historical Home Assistant domain:
 
 ```text
-custom_components/climate_comfort
 custom_components/comfort_climate
 ```
 
-then the HACS package includes compatibility for both domains. New installs use the current Home Assistant domain (`climate_comfort`). Existing systems that still have config entries under the earlier `comfort_climate` domain can continue to boot while you migrate/recreate them under `climate_comfort` at a convenient time.
+The repository/project has been renamed to **Climate Comfort**, but the integration domain remains `comfort_climate`. Do not rename the installed folder to `climate_comfort`; HACS installs only one integration folder and Home Assistant will continue to import `custom_components.comfort_climate` for existing config entries.
 
 Recommended safe migration:
 
 1. Back up Home Assistant.
-2. Rename the manually copied folder before installing through HACS:
+2. If you have a manually copied folder, rename it before installing through HACS:
    ```text
-   custom_components/climate_comfort.old
+   custom_components/comfort_climate.old
    ```
 3. Install **Climate Comfort** through HACS using the custom repository steps above.
 4. Restart Home Assistant.
 5. Confirm the existing Climate Comfort entries and entities load normally.
-6. Delete `custom_components/climate_comfort.old` after the HACS-managed install is working.
+6. Delete `custom_components/comfort_climate.old` after the HACS-managed install is working.
 
 Do not keep both the old manual copy and the HACS-managed copy in place at the same time.
 
