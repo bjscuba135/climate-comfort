@@ -113,7 +113,8 @@ def test_hacs_metadata_declares_climate_comfort_integration():
     assert hacs_path.exists()
     hacs = json.loads(hacs_path.read_text())
     assert hacs["name"] == "Climate Comfort"
-    assert hacs["domains"] == ["climate_comfort"]
+    assert "domains" not in hacs
+    assert MANIFEST["domain"] == "climate_comfort"
     assert hacs["homeassistant"] == MANIFEST["min_homeassistant_version"]
     assert hacs.get("render_readme") is True
 

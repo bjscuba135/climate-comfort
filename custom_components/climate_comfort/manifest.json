@@ -1,7 +1,7 @@
 {
   "domain": "climate_comfort",
   "name": "Climate Comfort",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "config_flow": true,
   "documentation": "https://github.com/bjscuba135/climate-comfort",
   "issue_tracker": "https://github.com/bjscuba135/climate-comfort/issues",
