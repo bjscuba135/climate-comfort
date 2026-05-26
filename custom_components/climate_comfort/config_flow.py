@@ -198,6 +198,34 @@ def _profile_fields(cfg: dict | None = None) -> dict:
     }
 
 
+_PROFILE_CONFIG_FIELDS = {
+    "relaxed": (
+        CONF_PROFILE_RELAXED_COMFORT_MULTIPLIER,
+        CONF_PROFILE_RELAXED_POINT_SPACING,
+        DEFAULT_PROFILE_RELAXED_COMFORT_MULTIPLIER,
+        DEFAULT_PROFILE_RELAXED_POINT_SPACING,
+    ),
+    "balanced": (
+        CONF_PROFILE_BALANCED_COMFORT_MULTIPLIER,
+        CONF_PROFILE_BALANCED_POINT_SPACING,
+        DEFAULT_PROFILE_BALANCED_COMFORT_MULTIPLIER,
+        DEFAULT_PROFILE_BALANCED_POINT_SPACING,
+    ),
+    "responsive": (
+        CONF_PROFILE_RESPONSIVE_COMFORT_MULTIPLIER,
+        CONF_PROFILE_RESPONSIVE_POINT_SPACING,
+        DEFAULT_PROFILE_RESPONSIVE_COMFORT_MULTIPLIER,
+        DEFAULT_PROFILE_RESPONSIVE_POINT_SPACING,
+    ),
+    "aggressive": (
+        CONF_PROFILE_AGGRESSIVE_COMFORT_MULTIPLIER,
+        CONF_PROFILE_AGGRESSIVE_POINT_SPACING,
+        DEFAULT_PROFILE_AGGRESSIVE_COMFORT_MULTIPLIER,
+        DEFAULT_PROFILE_AGGRESSIVE_POINT_SPACING,
+    ),
+}
+
+
 def _mode_schema(cfg: dict | None = None) -> vol.Schema:
     cfg = cfg or {}
     return vol.Schema({
@@ -409,38 +437,86 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
     # ── Main menu ────────────────────────────────────────────────────────────
 
     async def async_step_init(self, user_input=None):
-        # Global Defaults entries have no devices — send straight to their own edit form
+        # Global Defaults entries have no devices — show a smaller settings menu.
         if self._config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_GLOBAL:
             return await self.async_step_edit_global_defaults()
 
+        # ── Room menu ───────────────────────────────────────────────────────
         base_menu: dict[str, str] = {"add_device": "Add a device"}
         if self._devices:
             base_menu["edit_device_select"] = "Edit a device"
             base_menu["remove_device"] = "Remove a device"
         base_menu["edit_settings"] = "Edit room settings"
+        base_menu["edit_room_aggressiveness"] = "Edit room aggressiveness"
         base_menu["finish"] = "Save & close"
 
         return self.async_show_menu(step_id="init", menu_options=base_menu)
 
     # ── Global defaults edit (shown instead of the room menu) ────────────────
-
+    # ── Global defaults edit (split into smaller pages) ─────────────────────
     async def async_step_edit_global_defaults(self, user_input=None):
-        """Edit the shared preset temperatures and comfort zone."""
-        cfg = self._config_entry.data
+        """Menu for editing the Global Defaults entry in smaller chunks."""
+        return self.async_show_menu(
+            step_id="edit_global_defaults",
+            menu_options={
+                "edit_global_general": "General limits",
+                "edit_global_modes": "Mode temperatures",
+                "edit_global_profiles": "Aggressiveness profiles",
+                "edit_global_floors": "Floor mode selectors",
+                "finish": "Save & close",
+            },
+        )
 
+    async def async_step_edit_global_general(self, user_input=None):
+        """Edit shared comfort zone and safety temperature limits."""
+        cfg = self._config_entry.data
         if user_input is not None:
-            new_data = {**cfg, **user_input}
-            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
-            return self.async_create_entry(title="", data={})
+            self.hass.config_entries.async_update_entry(self._config_entry, data={**cfg, **user_input})
+            return await self.async_step_edit_global_defaults()
 
         return self.async_show_form(
-            step_id="edit_global_defaults",
+            step_id="edit_global_general",
             data_schema=vol.Schema({
                 vol.Required(CONF_COMFORT_ZONE, default=float(cfg.get(CONF_COMFORT_ZONE, DEFAULT_COMFORT_ZONE))): _num(0.1, 5.0, step=0.1),
                 vol.Required(CONF_MINIMUM_TEMPERATURE, default=float(cfg.get(CONF_MINIMUM_TEMPERATURE, DEFAULT_MIN_TEMP))): _num(0.0, 20.0, step=0.1, mode=selector.NumberSelectorMode.BOX),
                 vol.Required(CONF_MAXIMUM_TEMPERATURE, default=float(cfg.get(CONF_MAXIMUM_TEMPERATURE, DEFAULT_MAX_TEMP))): _num(20.0, 45.0, step=0.1, mode=selector.NumberSelectorMode.BOX),
-                **_profile_fields(cfg),
-                **_mode_schema(cfg).schema,
+            }),
+        )
+
+    async def async_step_edit_global_modes(self, user_input=None):
+        """Edit global mode temperatures and each mode's aggressiveness profile."""
+        cfg = self._config_entry.data
+        if user_input is not None:
+            self.hass.config_entries.async_update_entry(self._config_entry, data={**cfg, **user_input})
+            return await self.async_step_edit_global_defaults()
+
+        return self.async_show_form(
+            step_id="edit_global_modes",
+            data_schema=_mode_schema(cfg),
+        )
+
+    async def async_step_edit_global_profiles(self, user_input=None):
+        """Edit the global aggressiveness profile definitions."""
+        cfg = self._config_entry.data
+        if user_input is not None:
+            self.hass.config_entries.async_update_entry(self._config_entry, data={**cfg, **user_input})
+            return await self.async_step_edit_global_defaults()
+
+        return self.async_show_form(
+            step_id="edit_global_profiles",
+            data_schema=vol.Schema(_profile_fields(cfg)),
+        )
+
+    async def async_step_edit_global_floors(self, user_input=None):
+        """Edit the list of floor mode selectors created by Global Defaults."""
+        cfg = self._config_entry.data
+        if user_input is not None:
+            self.hass.config_entries.async_update_entry(self._config_entry, data={**cfg, **user_input})
+            return await self.async_step_edit_global_defaults()
+
+        return self.async_show_form(
+            step_id="edit_global_floors",
+            data_schema=vol.Schema({
                 vol.Optional(
                     CONF_FLOOR_NAMES,
                     default=list(cfg.get(CONF_FLOOR_NAMES, [])),
@@ -452,6 +528,30 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
                     )
                 ),
             }),
+        )
+
+    # ── Room aggressiveness ─────────────────────────────────────────────────
+    async def async_step_edit_room_aggressiveness(self, user_input=None):
+        """Edit per-room aggressiveness/profile settings."""
+        cfg = self._config_entry.data
+        if user_input is not None:
+            new_data = {**cfg, **user_input}
+            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            entry_data = self.hass.data.get(DOMAIN, {}).get(self._config_entry.entry_id, {})
+            climate = entry_data.get("climate_entity")
+            if climate:
+                for profile, (comfort_key, spacing_key, comfort_default, spacing_default) in _PROFILE_CONFIG_FIELDS.items():
+                    climate._profile_settings[profile] = (
+                        float(new_data.get(comfort_key, comfort_default)),
+                        float(new_data.get(spacing_key, spacing_default)),
+                    )
+                self.hass.async_create_task(climate._evaluate_devices())
+                climate.async_write_ha_state()
+            return await self.async_step_init()
+
+        return self.async_show_form(
+            step_id="edit_room_aggressiveness",
+            data_schema=vol.Schema(_profile_fields(cfg)),
         )
 
     # ── Step 1: label / entity / role ────────────────────────────────────────
@@ -696,25 +796,6 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
             for key in (CONF_HUMIDITY_SENSOR, CONF_HOUSE_MODE_ENTITY):
                 if key not in clean:
                     new_data.pop(key, None)
-            for key in (
-                CONF_MODE_AWAY, CONF_MODE_AWAY_PROFILE,
-                CONF_MODE_SLEEP, CONF_MODE_SLEEP_PROFILE,
-                CONF_MODE_HOME, CONF_MODE_HOME_PROFILE,
-                CONF_MODE_WARMUP, CONF_MODE_WARMUP_PROFILE,
-                CONF_MODE_COOLDOWN, CONF_MODE_COOLDOWN_PROFILE,
-                CONF_MINIMUM_TEMPERATURE, CONF_MAXIMUM_TEMPERATURE,
-                CONF_DEFAULT_PROFILE,
-                CONF_PROFILE_RELAXED_COMFORT_MULTIPLIER,
-                CONF_PROFILE_RELAXED_POINT_SPACING,
-                CONF_PROFILE_BALANCED_COMFORT_MULTIPLIER,
-                CONF_PROFILE_BALANCED_POINT_SPACING,
-                CONF_PROFILE_RESPONSIVE_COMFORT_MULTIPLIER,
-                CONF_PROFILE_RESPONSIVE_POINT_SPACING,
-                CONF_PROFILE_AGGRESSIVE_COMFORT_MULTIPLIER,
-                CONF_PROFILE_AGGRESSIVE_POINT_SPACING,
-            ):
-                if key in global_cfg:
-                    new_data[key] = global_cfg[key]
             self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
             return await self.async_step_init()
 
@@ -764,6 +845,8 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
     # ── Save ─────────────────────────────────────────────────────────────────
 
     async def async_step_finish(self, user_input=None):
+        if self._config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_GLOBAL:
+            return self.async_create_entry(title="", data={})
         return self.async_create_entry(title="", data={CONF_DEVICES: self._devices})
 
     # ── Internal helpers ──────────────────────────────────────────────────────

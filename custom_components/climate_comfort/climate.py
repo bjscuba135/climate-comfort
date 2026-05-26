@@ -309,8 +309,8 @@ class ClimateComfortEntity(ClimateEntity):
         self._profile_settings: dict[str, tuple[float, float]] = {}
         for profile, (comfort_key, spacing_key, comfort_default, spacing_default) in _PROFILE_CONFIG.items():
             self._profile_settings[profile] = (
-                float(g.get(comfort_key, comfort_default)),
-                float(g.get(spacing_key, spacing_default)),
+                float(cfg.get(comfort_key, g.get(comfort_key, comfort_default))),
+                float(cfg.get(spacing_key, g.get(spacing_key, spacing_default))),
             )
 
         self._mode_temps: dict[str, float] = {}

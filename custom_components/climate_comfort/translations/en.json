@@ -94,7 +94,8 @@
           "edit_device_select": "Edit a device",
           "remove_device": "Remove a device",
           "edit_settings": "Edit room settings",
-          "finish": "Save & close"
+          "finish": "Save & close",
+          "edit_room_aggressiveness": "Edit room aggressiveness"
         }
       },
       "add_device": {
@@ -192,38 +193,112 @@
       },
       "edit_global_defaults": {
         "title": "Global Defaults",
-        "description": "Shared modes, profiles, and safety limits used by all rooms.",
+        "description": "Choose which group of global settings to edit.",
+        "menu_options": {
+          "edit_global_general": "General limits",
+          "edit_global_modes": "Mode temperatures",
+          "edit_global_profiles": "Aggressiveness profiles",
+          "edit_global_floors": "Floor mode selectors",
+          "finish": "Save & close"
+        }
+      },
+      "edit_global_general": {
+        "title": "Global Defaults — General limits",
+        "description": "Shared comfort zone and safety temperature bounds.",
         "data": {
-          "comfort_zone": "Default base comfort zone width",
-          "default_profile": "Default profile",
-          "minimum_temperature": "Minimum temperature",
-          "maximum_temperature": "Maximum temperature",
-          "mode_away": "Away mode temperature",
-          "mode_away_profile": "Away mode profile",
-          "mode_sleep": "Sleep mode temperature",
-          "mode_sleep_profile": "Sleep mode profile",
-          "mode_home": "Home mode temperature",
-          "mode_home_profile": "Home mode profile",
-          "mode_warmup": "Warmup mode temperature",
-          "mode_warmup_profile": "Warmup mode profile",
-          "mode_cooldown": "Cooldown mode temperature",
-          "mode_cooldown_profile": "Cooldown mode profile",
-          "profile_relaxed_comfort_multiplier": "Relaxed comfort multiplier",
-          "profile_relaxed_point_spacing": "Relaxed point spacing",
-          "profile_balanced_comfort_multiplier": "Balanced comfort multiplier",
-          "profile_balanced_point_spacing": "Balanced point spacing",
-          "profile_responsive_comfort_multiplier": "Responsive comfort multiplier",
-          "profile_responsive_point_spacing": "Responsive point spacing",
-          "profile_aggressive_comfort_multiplier": "Aggressive comfort multiplier",
-          "profile_aggressive_point_spacing": "Aggressive point spacing",
+          "comfort_zone": "Default comfort zone width",
+          "minimum_temperature": "Emergency minimum temperature",
+          "maximum_temperature": "Emergency maximum temperature"
+        },
+        "data_description": {
+          "comfort_zone": "Half-width of the dead zone (±°C). Applied as the starting value for new rooms.",
+          "minimum_temperature": "Lowest safe temperature. Devices marked as emergency enabled can ignore Away protection to prevent the room dropping below this.",
+          "maximum_temperature": "Highest safe temperature. Devices marked as emergency enabled can ignore Away protection to prevent the room rising above this."
+        }
+      },
+      "edit_global_modes": {
+        "title": "Global Defaults — Mode temperatures",
+        "description": "Target temperatures and aggressiveness profile used by each house mode.",
+        "data": {
+          "mode_away": "Away temperature",
+          "mode_away_profile": "Away aggressiveness",
+          "mode_sleep": "Sleep temperature",
+          "mode_sleep_profile": "Sleep aggressiveness",
+          "mode_home": "Home temperature",
+          "mode_home_profile": "Home aggressiveness",
+          "mode_warmup": "Warmup temperature",
+          "mode_warmup_profile": "Warmup aggressiveness",
+          "mode_cooldown": "Cooldown temperature",
+          "mode_cooldown_profile": "Cooldown aggressiveness"
+        },
+        "data_description": {
+          "mode_away": "Protection / away setpoint.",
+          "mode_sleep": "Night-time target temperature.",
+          "mode_home": "Normal occupied target temperature.",
+          "mode_warmup": "More assertive heating target.",
+          "mode_cooldown": "More assertive cooling target."
+        }
+      },
+      "edit_global_profiles": {
+        "title": "Global Defaults — Aggressiveness profiles",
+        "description": "Profiles control how quickly rooms react around the target temperature.",
+        "data": {
+          "default_profile": "Default aggressiveness",
+          "profile_relaxed_comfort_multiplier": "Relaxed comfort zone multiplier",
+          "profile_relaxed_point_spacing": "Relaxed activation point spacing",
+          "profile_balanced_comfort_multiplier": "Balanced comfort zone multiplier",
+          "profile_balanced_point_spacing": "Balanced activation point spacing",
+          "profile_responsive_comfort_multiplier": "Responsive comfort zone multiplier",
+          "profile_responsive_point_spacing": "Responsive activation point spacing",
+          "profile_aggressive_comfort_multiplier": "Aggressive comfort zone multiplier",
+          "profile_aggressive_point_spacing": "Aggressive activation point spacing"
+        },
+        "data_description": {
+          "default_profile": "Profile used when no house mode-specific profile applies.",
+          "profile_relaxed_comfort_multiplier": "Higher values widen the dead zone, so the room reacts less often.",
+          "profile_relaxed_point_spacing": "Temperature spacing between staged activation points.",
+          "profile_balanced_comfort_multiplier": "Baseline comfort-zone multiplier.",
+          "profile_balanced_point_spacing": "Baseline staged activation spacing.",
+          "profile_responsive_comfort_multiplier": "Lower values narrow the dead zone, so the room reacts sooner.",
+          "profile_responsive_point_spacing": "Smaller spacing brings staged devices on sooner.",
+          "profile_aggressive_comfort_multiplier": "Lowest comfort-zone multiplier for fastest reaction.",
+          "profile_aggressive_point_spacing": "Smallest staged activation spacing for fastest escalation."
+        }
+      },
+      "edit_global_floors": {
+        "title": "Global Defaults — Floor mode selectors",
+        "description": "Create optional per-floor mode selectors alongside the whole-house mode selector.",
+        "data": {
           "floor_names": "Floor / zone selectors"
         },
         "data_description": {
-          "comfort_zone": "Base comfort zone width (±°C). New rooms start with this value; profiles scale it.",
-          "default_profile": "Fallback response profile used when needed.",
-          "minimum_temperature": "Lower safety limit. Emergency-enabled heating devices may activate below this temperature.",
-          "maximum_temperature": "Upper safety limit. Emergency-enabled cooling devices may activate above this temperature.",
-          "floor_names": "Creates extra mode selectors for floors or zones."
+          "floor_names": "Each entry creates a mode selector on the Global Settings device (e.g. 'Ground Floor', 'First Floor'). Rooms choose which selector to follow via their house / floor mode entity setting."
+        }
+      },
+      "edit_room_aggressiveness": {
+        "title": "Room Aggressiveness",
+        "description": "Override the aggressiveness profile values for this room only.",
+        "data": {
+          "default_profile": "Default aggressiveness",
+          "profile_relaxed_comfort_multiplier": "Relaxed comfort zone multiplier",
+          "profile_relaxed_point_spacing": "Relaxed activation point spacing",
+          "profile_balanced_comfort_multiplier": "Balanced comfort zone multiplier",
+          "profile_balanced_point_spacing": "Balanced activation point spacing",
+          "profile_responsive_comfort_multiplier": "Responsive comfort zone multiplier",
+          "profile_responsive_point_spacing": "Responsive activation point spacing",
+          "profile_aggressive_comfort_multiplier": "Aggressive comfort zone multiplier",
+          "profile_aggressive_point_spacing": "Aggressive activation point spacing"
+        },
+        "data_description": {
+          "default_profile": "Profile used when no house mode-specific profile applies.",
+          "profile_relaxed_comfort_multiplier": "Higher values widen the dead zone, so the room reacts less often.",
+          "profile_relaxed_point_spacing": "Temperature spacing between staged activation points.",
+          "profile_balanced_comfort_multiplier": "Baseline comfort-zone multiplier.",
+          "profile_balanced_point_spacing": "Baseline staged activation spacing.",
+          "profile_responsive_comfort_multiplier": "Lower values narrow the dead zone, so the room reacts sooner.",
+          "profile_responsive_point_spacing": "Smaller spacing brings staged devices on sooner.",
+          "profile_aggressive_comfort_multiplier": "Lowest comfort-zone multiplier for fastest reaction.",
+          "profile_aggressive_point_spacing": "Smallest staged activation spacing for fastest escalation."
         }
       }
     }

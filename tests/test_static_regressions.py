@@ -9,6 +9,8 @@ CONFIG_FLOW = (REPOSITORY_ROOT / "config_flow.py").read_text()
 CONST = (REPOSITORY_ROOT / "const.py").read_text()
 SELECT = (REPOSITORY_ROOT / "select.py").read_text()
 README = (ROOT / "README.md").read_text()
+STRINGS = json.loads((REPOSITORY_ROOT / "strings.json").read_text())
+TRANSLATIONS = json.loads((REPOSITORY_ROOT / "translations/en.json").read_text())
 MANIFEST = json.loads((REPOSITORY_ROOT / "manifest.json").read_text())
 
 
@@ -82,13 +84,49 @@ def test_new_room_setup_requires_global_defaults_and_uses_modes_not_legacy_prese
     assert "async_step_presets" not in CONFIG_FLOW
 
 
-def test_room_options_do_not_offer_local_mode_or_profile_overrides():
+def test_room_options_offer_local_aggressiveness_without_local_mode_temperature_overrides():
     menu_body = _method_body(CONFIG_FLOW, "async def async_step_init", "# ── Global defaults edit")
     settings_body = _method_body(CONFIG_FLOW, "async def async_step_edit_settings", "# ── Save")
     assert "edit_room_presets" not in menu_body
+    assert "edit_room_aggressiveness" in menu_body
     assert "CONF_USE_GLOBAL_PRESETS" not in menu_body
-    assert "CONF_MODE_HOME" in settings_body
     assert "_preset_schema" not in CONFIG_FLOW
+
+
+def test_global_defaults_options_are_split_into_sub_pages_with_mode_temperature_editor():
+    global_menu_body = _method_body(CONFIG_FLOW, "async def async_step_edit_global_defaults", "async def async_step_edit_global_general")
+    assert "async_show_menu" in global_menu_body
+    assert "edit_global_general" in global_menu_body
+    assert "edit_global_modes" in global_menu_body
+    assert "edit_global_profiles" in global_menu_body
+    assert "edit_global_floors" in global_menu_body
+    global_strings = STRINGS["options"]["step"]
+    assert "edit_global_modes" in global_strings
+    assert "mode_home" in global_strings["edit_global_modes"]["data"]
+    assert "edit_global_modes" in TRANSLATIONS["options"]["step"]
+    assert "mode_home" in TRANSLATIONS["options"]["step"]["edit_global_modes"]["data"]
+
+    modes_body = _method_body(CONFIG_FLOW, "async def async_step_edit_global_modes", "async def async_step_edit_global_profiles")
+    assert "_mode_schema(cfg)" in modes_body
+    assert "async_update_entry" in modes_body
+
+
+def test_room_aggressiveness_page_persists_room_profile_settings_and_climate_uses_them():
+    aggressiveness_body = _method_body(CONFIG_FLOW, "async def async_step_edit_room_aggressiveness", "# ── Step 1")
+    assert "_profile_fields(cfg)" in aggressiveness_body
+    assert "async_update_entry" in aggressiveness_body
+    assert "edit_room_aggressiveness" in STRINGS["options"]["step"]["init"]["menu_options"]
+    assert "edit_room_aggressiveness" in STRINGS["options"]["step"]
+    assert "edit_room_aggressiveness" in TRANSLATIONS["options"]["step"]["init"]["menu_options"]
+    assert "edit_room_aggressiveness" in TRANSLATIONS["options"]["step"]
+
+    settings_body = _method_body(CONFIG_FLOW, "async def async_step_edit_settings", "# ── Save")
+    assert "CONF_PROFILE_AGGRESSIVE_POINT_SPACING" not in settings_body
+    assert "CONF_PROFILE_BALANCED_COMFORT_MULTIPLIER" not in settings_body
+
+    profile_loop = _method_body(CLIMATE, "for profile, (comfort_key, spacing_key, comfort_default, spacing_default) in _PROFILE_CONFIG.items():", "self._mode_temps")
+    assert "cfg.get(comfort_key" in profile_loop
+    assert "cfg.get(spacing_key" in profile_loop
 
 
 def test_device_activation_points_are_role_limited_selects():
