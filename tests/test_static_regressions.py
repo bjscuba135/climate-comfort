@@ -5,6 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = ROOT / "custom_components/climate_comfort"
 CLIMATE = (REPOSITORY_ROOT / "climate.py").read_text()
 SWITCH = (REPOSITORY_ROOT / "switch.py").read_text()
+BINARY_SENSOR = (REPOSITORY_ROOT / "binary_sensor.py").read_text()
 CONFIG_FLOW = (REPOSITORY_ROOT / "config_flow.py").read_text()
 CONST = (REPOSITORY_ROOT / "const.py").read_text()
 SELECT = (REPOSITORY_ROOT / "select.py").read_text()
@@ -192,6 +193,29 @@ def test_device_activation_points_are_role_limited_selects():
     activation_field = body.split("CONF_DEVICE_ACTIVATION_POINT", 1)[1].split("CONF_DEVICE_DEACTIVATE_OFFSET", 1)[0]
     assert "_activation_point_selector" in activation_field
     assert "NumberSelector" not in activation_field
+
+
+def test_legacy_absolute_activation_offsets_are_not_scaled_by_aggressiveness_spacing():
+    device_init = _method_body(CLIMATE, "def __init__(self, data: dict) -> None:", "    @property\n    def is_climate")
+    assert "self.activation_point = None" in device_init
+    assert "old activate_offset was degrees beyond the boundary" in device_init
+    assert "def _activation_offset_for_device" in CLIMATE
+    offset_helper = _method_body(CLIMATE, "def _activation_offset_for_device", "def _thresholds")
+    assert "if device.activation_point is None" in offset_helper
+    assert "return device.activate_offset" in offset_helper
+    assert "abs(device.activation_point) * spacing" in offset_helper
+    evaluation_body = _method_body(CLIMATE, "async def _evaluate_devices", "# ── Evaluate dehumidifier devices")
+    assert "ut + self._activation_offset_for_device(device, point_spacing)" in evaluation_body
+    assert "lt - self._activation_offset_for_device(device, point_spacing)" in evaluation_body
+
+
+def test_binary_sensor_thresholds_use_same_activation_offset_logic_as_control():
+    assert "def _device_activation_offset" in BINARY_SENSOR
+    assert "device.activation_point is None" in BINARY_SENSOR
+    assert "return device.activate_offset" in BINARY_SENSOR
+    assert "abs(device.activation_point) * point_spacing" in BINARY_SENSOR
+    assert '"point_spacing": self._profile_point_spacing()' in CLIMATE
+    assert "sensor.update_trigger_name(lt, ut, self._profile_point_spacing())" in CLIMATE
 
 
 def test_emergency_enabled_device_flag_is_collected_and_used_for_safety_limits():

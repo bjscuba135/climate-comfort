@@ -217,12 +217,16 @@ class _Device:
 
         # Temperature escalation fields (heating/cooling roles)
         if CONF_DEVICE_ACTIVATION_POINT in data:
-            self.activation_point: int = int(data.get(CONF_DEVICE_ACTIVATION_POINT, 0))
+            self.activation_point: int | None = int(data.get(CONF_DEVICE_ACTIVATION_POINT, 0))
         else:
             # Backward compatibility: old activate_offset was degrees beyond the boundary.
-            old_offset = float(data.get(CONF_DEVICE_ACTIVATE_OFFSET, 0.0))
-            self.activation_point = -int(round(old_offset)) if self.role == ROLE_HEATING else int(round(old_offset))
-        self.activate_offset: float = float(data.get(CONF_DEVICE_ACTIVATE_OFFSET, abs(self.activation_point)))
+            # Leave activation_point unset so runtime continues using the absolute
+            # degree offset instead of multiplying it by the active profile spacing.
+            self.activation_point = None
+        self.activate_offset: float = float(data.get(
+            CONF_DEVICE_ACTIVATE_OFFSET,
+            abs(self.activation_point) if self.activation_point is not None else 0.0,
+        ))
         self.deactivate_offset: float = float(data.get(CONF_DEVICE_DEACTIVATE_OFFSET, 0.5))
         self.emergency_enabled: bool = bool(data.get(CONF_DEVICE_EMERGENCY_ENABLED, False))
         self.hvac_mode_on: str | None = data.get(CONF_DEVICE_HVAC_MODE_ON)
@@ -405,6 +409,7 @@ class ClimateComfortEntity(ClimateEntity):
             "ut": round(ut, 2),
             "setpoint": self._attr_target_temperature,
             "preset": self._attr_preset_mode,
+            "point_spacing": self._profile_point_spacing(),
         }
 
         self.hass.async_create_task(self._evaluate_devices())
@@ -794,6 +799,19 @@ class ClimateComfortEntity(ClimateEntity):
     def _profile_point_spacing(self) -> float:
         return self._profile_settings.get(self._active_profile(), self._profile_settings[PROFILE_BALANCED])[1]
 
+    def _activation_offset_for_device(self, device: _Device, point_spacing: float | None = None) -> float:
+        """
+        Return the actual degrees beyond the comfort boundary for a device.
+
+        New configs store a discrete activation point that scales with the active
+        aggressiveness profile.  Legacy configs only have activate_offset, which
+        was already an absolute °C value and must not be multiplied by spacing.
+        """
+        if device.activation_point is None:
+            return device.activate_offset
+        spacing = self._profile_point_spacing() if point_spacing is None else point_spacing
+        return abs(device.activation_point) * spacing
+
     def _thresholds(self) -> tuple[float, float]:
         sp = self._attr_target_temperature
         effective_comfort_zone = self._comfort_zone * self._profile_comfort_multiplier()
@@ -842,7 +860,7 @@ class ClimateComfortEntity(ClimateEntity):
             if self._is_in_manual_hold(device.entity_id):
                 continue  # manual hold in effect — don't touch this device
             if device.role == ROLE_HEATING and mode_allows_heating:
-                activate_at = lt + (device.activation_point * point_spacing)
+                activate_at = lt - self._activation_offset_for_device(device, point_spacing)
                 deactivate_at = activate_at + device.deactivate_offset
                 should_activate = current <= activate_at or (emergency_heat and device.emergency_enabled)
                 if should_activate and not device.is_active:
@@ -853,7 +871,7 @@ class ClimateComfortEntity(ClimateEntity):
                     any_heating = True
 
             elif device.role == ROLE_COOLING and mode_allows_cooling:
-                activate_at = ut + (device.activation_point * point_spacing)
+                activate_at = ut + self._activation_offset_for_device(device, point_spacing)
                 deactivate_at = activate_at - device.deactivate_offset
                 should_activate = current >= activate_at or (emergency_cool and device.emergency_enabled)
                 if should_activate and not device.is_active:
@@ -881,7 +899,7 @@ class ClimateComfortEntity(ClimateEntity):
                     if not mode_allows_heating:
                         stage.is_active = False
                         continue
-                    activate_at = lt + (stage.activation_point * point_spacing)
+                    activate_at = lt - self._activation_offset_for_device(stage, point_spacing)
                     deactivate_at = activate_at + stage.deactivate_offset
                     if current <= activate_at or (emergency_heat and stage.emergency_enabled):
                         stage.is_active = True
@@ -892,7 +910,7 @@ class ClimateComfortEntity(ClimateEntity):
                     if not mode_allows_cooling:
                         stage.is_active = False
                         continue
-                    activate_at = ut + (stage.activation_point * point_spacing)
+                    activate_at = ut + self._activation_offset_for_device(stage, point_spacing)
                     deactivate_at = activate_at - stage.deactivate_offset
                     if current >= activate_at or (emergency_cool and stage.emergency_enabled):
                         stage.is_active = True
@@ -901,7 +919,7 @@ class ClimateComfortEntity(ClimateEntity):
 
             active_stages = [s for s in stages if s.is_active]
             winning = (
-                max(active_stages, key=lambda s: abs(s.activation_point))
+                max(active_stages, key=lambda s: self._activation_offset_for_device(s, point_spacing))
                 if active_stages else None
             )
             prev = self._active_climate_stage.get(entity_id)
@@ -1114,6 +1132,7 @@ class ClimateComfortEntity(ClimateEntity):
             "ut": round(ut, 2),
             "setpoint": self._attr_target_temperature,
             "preset": self._attr_preset_mode,
+            "point_spacing": self._profile_point_spacing(),
         }
         # Share manual holds and hold duration so binary sensors can show override status
         entry_data["manual_holds"] = dict(self._manual_holds)
@@ -1121,7 +1140,7 @@ class ClimateComfortEntity(ClimateEntity):
 
         for sensor in entry_data.get("device_sensors", []):
             # Update name so trigger temp stays current when setpoint changes
-            sensor.update_trigger_name(lt, ut)
+            sensor.update_trigger_name(lt, ut, self._profile_point_spacing())
             sensor.async_write_ha_state()
         for sensor in entry_data.get("room_sensors", []):
             sensor._refresh_value()

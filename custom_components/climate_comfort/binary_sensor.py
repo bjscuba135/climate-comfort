@@ -32,7 +32,18 @@ _ROLE_LABELS = {
 }
 
 
-def _device_name_with_trigger(device: "_Device", lt: float | None, ut: float | None) -> str:
+def _device_activation_offset(device: "_Device", point_spacing: float | None) -> float:
+    if device.activation_point is None or point_spacing is None:
+        return device.activate_offset
+    return abs(device.activation_point) * point_spacing
+
+
+def _device_name_with_trigger(
+    device: "_Device",
+    lt: float | None,
+    ut: float | None,
+    point_spacing: float | None = None,
+) -> str:
     """
     Build the entity name using the actual trigger temperature / humidity so
     it reads like the dehumidifier entry already does:
@@ -48,11 +59,12 @@ def _device_name_with_trigger(device: "_Device", lt: float | None, ut: float | N
         return f"{device.label} (>{device.humidity_threshold:.0f} %)"
     if lt is None or ut is None:
         return device.label          # thresholds not ready yet; updated on first sync
+    offset = _device_activation_offset(device, point_spacing)
     if device.role == ROLE_COOLING:
-        activate_at = ut + device.activate_offset
+        activate_at = ut + offset
         return f"{device.label} (>{activate_at:.1f} °C)"
     # ROLE_HEATING
-    activate_at = lt - device.activate_offset
+    activate_at = lt - offset
     return f"{device.label} (<{activate_at:.1f} °C)"
 
 
@@ -108,10 +120,19 @@ class ControlledDeviceSensor(BinarySensorEntity):
             .get(self._entry.entry_id, {})
             .get("thresholds", {})
         )
-        self.update_trigger_name(thresholds.get("lt"), thresholds.get("ut"))
+        self.update_trigger_name(
+            thresholds.get("lt"),
+            thresholds.get("ut"),
+            thresholds.get("point_spacing"),
+        )
         self.async_write_ha_state()
 
-    def update_trigger_name(self, lt: float | None, ut: float | None) -> None:
+    def update_trigger_name(
+        self,
+        lt: float | None,
+        ut: float | None,
+        point_spacing: float | None = None,
+    ) -> None:
         """Recompute the entity name — shows (Manual) when a hold is active."""
         entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
         holds = entry_data.get("manual_holds", {})
@@ -119,7 +140,7 @@ class ControlledDeviceSensor(BinarySensorEntity):
             self._attr_name = f"{self._device.label} (Manual)"
             self._attr_icon = "mdi:hand-back-right"
         else:
-            self._attr_name = _device_name_with_trigger(self._device, lt, ut)
+            self._attr_name = _device_name_with_trigger(self._device, lt, ut, point_spacing)
             self._attr_icon = _ROLE_ICONS.get(self._device.role, "mdi:power")
 
     @property
@@ -142,18 +163,20 @@ class ControlledDeviceSensor(BinarySensorEntity):
         lt = thresholds.get("lt")
         ut = thresholds.get("ut")
         preset = thresholds.get("preset", "")
+        point_spacing = thresholds.get("point_spacing")
 
         attrs: dict = {}
 
         if d.role in (ROLE_HEATING, ROLE_COOLING):
             if lt is not None and ut is not None:
+                offset = _device_activation_offset(d, point_spacing)
                 if d.role == ROLE_HEATING:
-                    activate_at = lt - d.activate_offset
+                    activate_at = lt - offset
                     deactivate_at = activate_at + d.deactivate_offset
                     attrs["activates_below"] = f"{activate_at:.1f} °C"
                     attrs["deactivates_above"] = f"{deactivate_at:.1f} °C"
                 else:
-                    activate_at = ut + d.activate_offset
+                    activate_at = ut + offset
                     deactivate_at = activate_at - d.deactivate_offset
                     attrs["activates_above"] = f"{activate_at:.1f} °C"
                     attrs["deactivates_below"] = f"{deactivate_at:.1f} °C"
@@ -161,7 +184,14 @@ class ControlledDeviceSensor(BinarySensorEntity):
                     attrs["active_preset"] = preset
 
             # Config values — useful but secondary to trigger temps
-            attrs["offset_beyond_boundary"] = f"{d.activate_offset} °C"
+            if d.activation_point is None:
+                attrs["offset_beyond_boundary"] = f"{d.activate_offset} °C"
+            else:
+                attrs["activation_point"] = d.activation_point
+                if point_spacing is not None:
+                    attrs["offset_beyond_boundary"] = (
+                        f"{_device_activation_offset(d, point_spacing):.1f} °C"
+                    )
             attrs["hysteresis"] = f"{d.deactivate_offset} °C"
             if d.hvac_mode_on:
                 attrs["hvac_mode_when_active"] = d.hvac_mode_on
