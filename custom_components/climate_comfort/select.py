@@ -16,13 +16,14 @@ from .const import (
     ENTRY_TYPE_GLOBAL,
     ENTRY_TYPE_ROOM,
     MODE_COOLDOWN,
+    MODE_ENABLE_DEFAULTS,
+    MODE_ENABLE_KEYS,
     MODE_HOME,
-    MODE_OPTIONS,
     MODE_WARMUP,
+    OPTIONAL_MODE_OPTIONS,
     PROFILE_OPTIONS,
 )
 
-HOUSE_MODE_OPTIONS = MODE_OPTIONS
 _DEFAULT_MODE = MODE_HOME
 _LEGACY_MODE_ALIASES = {
     "warmup": MODE_WARMUP,
@@ -34,6 +35,16 @@ PROFILE_OVERRIDE_OPTIONS = [PROFILE_OVERRIDE_MODE_DEFAULT, *PROFILE_OPTIONS]
 
 _DATA_FLOOR_SELECTS = "floor_selects"
 _DATA_PROFILE_OVERRIDE = "profile_override"
+
+
+def _enabled_house_mode_options(cfg: dict) -> list[str]:
+    enabled = [MODE_HOME]
+    for mode in OPTIONAL_MODE_OPTIONS:
+        key = MODE_ENABLE_KEYS[mode]
+        default = MODE_ENABLE_DEFAULTS[key]
+        if bool(cfg.get(key, default)):
+            enabled.append(mode)
+    return enabled
 
 
 async def async_setup_entry(
@@ -76,12 +87,12 @@ class HouseModeSelect(SelectEntity, RestoreEntity):
     _attr_has_entity_name = True
     _attr_name = "House Mode"
     _attr_icon = "mdi:home-thermometer"
-    _attr_options = HOUSE_MODE_OPTIONS
 
     def __init__(self, entry: ConfigEntry) -> None:
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_house_mode"
         self._attr_current_option = _DEFAULT_MODE
+        self._attr_options = _enabled_house_mode_options(entry.data)
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="Global Settings",
@@ -92,7 +103,7 @@ class HouseModeSelect(SelectEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         if last := await self.async_get_last_state():
             restored = _LEGACY_MODE_ALIASES.get(last.state, last.state)
-            if restored in HOUSE_MODE_OPTIONS:
+            if restored in self._attr_options:
                 self._attr_current_option = restored
         self.async_write_ha_state()
 
@@ -103,9 +114,9 @@ class HouseModeSelect(SelectEntity, RestoreEntity):
         Cascade path:
           House Mode → (state change → rooms tagged with House Mode)
                      → each FloorModeSelect.async_select_option()
-                         → (state change → rooms tagged with that floor)
+                        → (state change → rooms tagged with that floor)
         """
-        if option not in HOUSE_MODE_OPTIONS:
+        if option not in self._attr_options:
             return
         self._attr_current_option = option
         self.async_write_ha_state()  # triggers rooms subscribed directly to House Mode
@@ -127,7 +138,6 @@ class FloorModeSelect(SelectEntity, RestoreEntity):
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:floor-plan"
-    _attr_options = HOUSE_MODE_OPTIONS
 
     def __init__(self, entry: ConfigEntry, floor_name: str) -> None:
         self._entry = entry
@@ -136,6 +146,7 @@ class FloorModeSelect(SelectEntity, RestoreEntity):
         self._attr_unique_id = f"{entry.entry_id}_floor_mode_{slug}"
         self._attr_name = f"{floor_name} Mode"
         self._attr_current_option = _DEFAULT_MODE
+        self._attr_options = _enabled_house_mode_options(entry.data)
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
         )
@@ -143,12 +154,12 @@ class FloorModeSelect(SelectEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         if last := await self.async_get_last_state():
             restored = _LEGACY_MODE_ALIASES.get(last.state, last.state)
-            if restored in HOUSE_MODE_OPTIONS:
+            if restored in self._attr_options:
                 self._attr_current_option = restored
         self.async_write_ha_state()
 
     async def async_select_option(self, option: str) -> None:
-        if option not in HOUSE_MODE_OPTIONS:
+        if option not in self._attr_options:
             return
         self._attr_current_option = option
         self.async_write_ha_state()  # triggers rooms subscribed to this floor

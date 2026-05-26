@@ -32,14 +32,24 @@ from .const import (
     CONF_MINIMUM_TEMPERATURE,
     CONF_MODE_AWAY,
     CONF_MODE_AWAY_PROFILE,
+    CONF_MODE_AWAY_ENABLED,
+    CONF_MODE_ACTIVITY,
+    CONF_MODE_ACTIVITY_PROFILE,
+    CONF_MODE_ACTIVITY_ENABLED,
+    CONF_MODE_BOOST,
+    CONF_MODE_BOOST_PROFILE,
+    CONF_MODE_BOOST_ENABLED,
     CONF_MODE_COOLDOWN,
     CONF_MODE_COOLDOWN_PROFILE,
+    CONF_MODE_COOLDOWN_ENABLED,
     CONF_MODE_HOME,
     CONF_MODE_HOME_PROFILE,
     CONF_MODE_SLEEP,
     CONF_MODE_SLEEP_PROFILE,
+    CONF_MODE_SLEEP_ENABLED,
     CONF_MODE_WARMUP,
     CONF_MODE_WARMUP_PROFILE,
+    CONF_MODE_WARMUP_ENABLED,
     CONF_PROFILE_AGGRESSIVE_COMFORT_MULTIPLIER,
     CONF_PROFILE_AGGRESSIVE_POINT_SPACING,
     CONF_PROFILE_BALANCED_COMFORT_MULTIPLIER,
@@ -56,15 +66,25 @@ from .const import (
     DEFAULT_MAX_TEMP,
     DEFAULT_MIN_TEMP,
     DEFAULT_MODE_AWAY,
+    DEFAULT_MODE_ACTIVITY,
+    DEFAULT_MODE_BOOST,
     DEFAULT_MODE_COOLDOWN,
     DEFAULT_MODE_HOME,
     DEFAULT_MODE_PROFILE_AWAY,
+    DEFAULT_MODE_PROFILE_ACTIVITY,
+    DEFAULT_MODE_PROFILE_BOOST,
     DEFAULT_MODE_PROFILE_COOLDOWN,
     DEFAULT_MODE_PROFILE_HOME,
     DEFAULT_MODE_PROFILE_SLEEP,
     DEFAULT_MODE_PROFILE_WARMUP,
+    DEFAULT_MODE_AWAY_ENABLED,
+    DEFAULT_MODE_ACTIVITY_ENABLED,
+    DEFAULT_MODE_BOOST_ENABLED,
+    DEFAULT_MODE_COOLDOWN_ENABLED,
     DEFAULT_MODE_SLEEP,
+    DEFAULT_MODE_SLEEP_ENABLED,
     DEFAULT_MODE_WARMUP,
+    DEFAULT_MODE_WARMUP_ENABLED,
     DEFAULT_PROFILE,
     DEFAULT_PROFILE_AGGRESSIVE_COMFORT_MULTIPLIER,
     DEFAULT_PROFILE_AGGRESSIVE_POINT_SPACING,
@@ -249,14 +269,24 @@ def _mode_schema(cfg: dict | None = None) -> vol.Schema:
     return vol.Schema({
         vol.Required(CONF_MODE_AWAY, default=float(cfg.get(CONF_MODE_AWAY, DEFAULT_MODE_AWAY))): _num(5, 30, step=0.1),
         vol.Required(CONF_MODE_AWAY_PROFILE, default=cfg.get(CONF_MODE_AWAY_PROFILE, DEFAULT_MODE_PROFILE_AWAY)): _profile_selector(),
+        vol.Required(CONF_MODE_AWAY_ENABLED, default=bool(cfg.get(CONF_MODE_AWAY_ENABLED, DEFAULT_MODE_AWAY_ENABLED))): selector.BooleanSelector(),
         vol.Required(CONF_MODE_SLEEP, default=float(cfg.get(CONF_MODE_SLEEP, DEFAULT_MODE_SLEEP))): _num(5, 30, step=0.1),
         vol.Required(CONF_MODE_SLEEP_PROFILE, default=cfg.get(CONF_MODE_SLEEP_PROFILE, DEFAULT_MODE_PROFILE_SLEEP)): _profile_selector(),
+        vol.Required(CONF_MODE_SLEEP_ENABLED, default=bool(cfg.get(CONF_MODE_SLEEP_ENABLED, DEFAULT_MODE_SLEEP_ENABLED))): selector.BooleanSelector(),
         vol.Required(CONF_MODE_HOME, default=float(cfg.get(CONF_MODE_HOME, DEFAULT_MODE_HOME))): _num(5, 30, step=0.1),
         vol.Required(CONF_MODE_HOME_PROFILE, default=cfg.get(CONF_MODE_HOME_PROFILE, DEFAULT_MODE_PROFILE_HOME)): _profile_selector(),
         vol.Required(CONF_MODE_WARMUP, default=float(cfg.get(CONF_MODE_WARMUP, DEFAULT_MODE_WARMUP))): _num(5, 30, step=0.1),
         vol.Required(CONF_MODE_WARMUP_PROFILE, default=cfg.get(CONF_MODE_WARMUP_PROFILE, DEFAULT_MODE_PROFILE_WARMUP)): _profile_selector(),
+        vol.Required(CONF_MODE_WARMUP_ENABLED, default=bool(cfg.get(CONF_MODE_WARMUP_ENABLED, DEFAULT_MODE_WARMUP_ENABLED))): selector.BooleanSelector(),
         vol.Required(CONF_MODE_COOLDOWN, default=float(cfg.get(CONF_MODE_COOLDOWN, DEFAULT_MODE_COOLDOWN))): _num(5, 30, step=0.1),
         vol.Required(CONF_MODE_COOLDOWN_PROFILE, default=cfg.get(CONF_MODE_COOLDOWN_PROFILE, DEFAULT_MODE_PROFILE_COOLDOWN)): _profile_selector(),
+        vol.Required(CONF_MODE_COOLDOWN_ENABLED, default=bool(cfg.get(CONF_MODE_COOLDOWN_ENABLED, DEFAULT_MODE_COOLDOWN_ENABLED))): selector.BooleanSelector(),
+        vol.Required(CONF_MODE_ACTIVITY, default=float(cfg.get(CONF_MODE_ACTIVITY, DEFAULT_MODE_ACTIVITY))): _num(5, 30, step=0.1),
+        vol.Required(CONF_MODE_ACTIVITY_PROFILE, default=cfg.get(CONF_MODE_ACTIVITY_PROFILE, DEFAULT_MODE_PROFILE_ACTIVITY)): _profile_selector(),
+        vol.Required(CONF_MODE_ACTIVITY_ENABLED, default=bool(cfg.get(CONF_MODE_ACTIVITY_ENABLED, DEFAULT_MODE_ACTIVITY_ENABLED))): selector.BooleanSelector(),
+        vol.Required(CONF_MODE_BOOST, default=float(cfg.get(CONF_MODE_BOOST, DEFAULT_MODE_BOOST))): _num(5, 30, step=0.1),
+        vol.Required(CONF_MODE_BOOST_PROFILE, default=cfg.get(CONF_MODE_BOOST_PROFILE, DEFAULT_MODE_PROFILE_BOOST)): _profile_selector(),
+        vol.Required(CONF_MODE_BOOST_ENABLED, default=bool(cfg.get(CONF_MODE_BOOST_ENABLED, DEFAULT_MODE_BOOST_ENABLED))): selector.BooleanSelector(),
     })
 
 
@@ -325,11 +355,13 @@ class ClimateComfortConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._data[CONF_ENTRY_TYPE] = ENTRY_TYPE_ROOM
             self._data[CONF_USE_GLOBAL_PRESETS] = True
             for key in (
-                CONF_MODE_AWAY, CONF_MODE_AWAY_PROFILE,
-                CONF_MODE_SLEEP, CONF_MODE_SLEEP_PROFILE,
+                CONF_MODE_AWAY, CONF_MODE_AWAY_PROFILE, CONF_MODE_AWAY_ENABLED,
+                CONF_MODE_SLEEP, CONF_MODE_SLEEP_PROFILE, CONF_MODE_SLEEP_ENABLED,
                 CONF_MODE_HOME, CONF_MODE_HOME_PROFILE,
-                CONF_MODE_WARMUP, CONF_MODE_WARMUP_PROFILE,
-                CONF_MODE_COOLDOWN, CONF_MODE_COOLDOWN_PROFILE,
+                CONF_MODE_WARMUP, CONF_MODE_WARMUP_PROFILE, CONF_MODE_WARMUP_ENABLED,
+                CONF_MODE_COOLDOWN, CONF_MODE_COOLDOWN_PROFILE, CONF_MODE_COOLDOWN_ENABLED,
+                CONF_MODE_ACTIVITY, CONF_MODE_ACTIVITY_PROFILE, CONF_MODE_ACTIVITY_ENABLED,
+                CONF_MODE_BOOST, CONF_MODE_BOOST_PROFILE, CONF_MODE_BOOST_ENABLED,
                 CONF_MINIMUM_TEMPERATURE, CONF_MAXIMUM_TEMPERATURE,
                 CONF_DEFAULT_PROFILE,
                 CONF_PROFILE_RELAXED_COMFORT_MULTIPLIER,
@@ -956,7 +988,9 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
                 f"Modes and profiles are inherited from Global Defaults. "
                 f"Home {global_cfg.get(CONF_MODE_HOME, '?')} °C · "
                 f"Comfort {global_cfg.get(CONF_MODE_WARMUP, '?')} °C · "
-                f"Eco {global_cfg.get(CONF_MODE_COOLDOWN, '?')} °C"
+                f"Eco {global_cfg.get(CONF_MODE_COOLDOWN, '?')} °C · "
+                f"Activity {global_cfg.get(CONF_MODE_ACTIVITY, '?')} °C · "
+                f"Boost {global_cfg.get(CONF_MODE_BOOST, '?')} °C"
             )
         } if global_cfg else None
 

@@ -11,7 +11,9 @@ from .const import (
     CONF_DEVICE_ROLE,
     CONF_DEVICES,
     CONF_ENTRY_TYPE,
+    CONF_MODE_ACTIVITY,
     CONF_MODE_AWAY,
+    CONF_MODE_BOOST,
     CONF_MODE_COOLDOWN,
     CONF_MODE_HOME,
     CONF_MODE_SLEEP,
@@ -19,7 +21,9 @@ from .const import (
     CONF_USE_GLOBAL_PRESETS,
     DOMAIN,
     ENTRY_TYPE_GLOBAL,
+    MODE_ACTIVITY,
     MODE_AWAY,
+    MODE_BOOST,
     MODE_COOLDOWN,
     MODE_HOME,
     MODE_SLEEP,
@@ -103,8 +107,15 @@ class GlobalPresetsSwitch(SwitchEntity):
             self.async_write_ha_state()
             return
         new_data = {**self._entry.data, CONF_USE_GLOBAL_PRESETS: True}
-        for key in (CONF_MODE_AWAY, CONF_MODE_SLEEP, CONF_MODE_HOME,
-                    CONF_MODE_WARMUP, CONF_MODE_COOLDOWN):
+        for key in (
+            CONF_MODE_AWAY,
+            CONF_MODE_SLEEP,
+            CONF_MODE_HOME,
+            CONF_MODE_WARMUP,
+            CONF_MODE_COOLDOWN,
+            CONF_MODE_ACTIVITY,
+            CONF_MODE_BOOST,
+        ):
             if key in global_cfg:
                 new_data[key] = global_cfg[key]
         self.hass.config_entries.async_update_entry(self._entry, data=new_data)
@@ -119,6 +130,8 @@ class GlobalPresetsSwitch(SwitchEntity):
                 MODE_HOME: CONF_MODE_HOME,
                 MODE_WARMUP: CONF_MODE_WARMUP,
                 MODE_COOLDOWN: CONF_MODE_COOLDOWN,
+                MODE_ACTIVITY: CONF_MODE_ACTIVITY,
+                MODE_BOOST: CONF_MODE_BOOST,
             }.items():
                 if key in global_cfg:
                     climate._mode_temps[mode] = float(global_cfg[key])

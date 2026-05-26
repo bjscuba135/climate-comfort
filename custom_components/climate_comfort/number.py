@@ -11,6 +11,8 @@ from .const import (
     CONF_COMFORT_ZONE,
     CONF_ENTRY_TYPE,
     CONF_MODE_AWAY,
+    CONF_MODE_ACTIVITY,
+    CONF_MODE_BOOST,
     CONF_MODE_COOLDOWN,
     CONF_MODE_HOME,
     CONF_MODE_SLEEP,
@@ -18,6 +20,8 @@ from .const import (
     CONF_USE_GLOBAL_PRESETS,
     DEFAULT_COMFORT_ZONE,
     DEFAULT_MODE_AWAY,
+    DEFAULT_MODE_ACTIVITY,
+    DEFAULT_MODE_BOOST,
     DEFAULT_MODE_COOLDOWN,
     DEFAULT_MODE_HOME,
     DEFAULT_MODE_SLEEP,
@@ -25,20 +29,26 @@ from .const import (
     DOMAIN,
     ENTRY_TYPE_GLOBAL,
     MODE_AWAY,
+    MODE_ACTIVITY,
+    MODE_BOOST,
     MODE_COOLDOWN,
+    MODE_ENABLE_DEFAULTS,
+    MODE_ENABLE_KEYS,
     MODE_HOME,
     MODE_SLEEP,
     MODE_WARMUP,
 )
 
-# (key_suffix, name, config_key, default, icon, is_delta, min_v, max_v, step)
+# (key_suffix, name, config_key, default, icon, is_delta, enabled_by_default, min_v, max_v, step)
 _NUMBER_DEFS: list[tuple] = [
-    ("comfort_zone",   "Comfort Zone",        CONF_COMFORT_ZONE,     DEFAULT_COMFORT_ZONE,     "mdi:swap-vertical-circle", True,  0.1, 5.0,  0.1),
-    ("mode_away",      "Away Temperature",     CONF_MODE_AWAY,       DEFAULT_MODE_AWAY,       "mdi:home-export-outline",  False, 5.0, 30.0, 0.1),
-    ("mode_sleep",     "Sleep Temperature",    CONF_MODE_SLEEP,      DEFAULT_MODE_SLEEP,      "mdi:sleep",                False, 5.0, 30.0, 0.1),
-    ("mode_home",      "Home Temperature",     CONF_MODE_HOME,       DEFAULT_MODE_HOME,       "mdi:sofa",                 False, 5.0, 30.0, 0.1),
-    ("mode_warmup",    "Comfort Temperature",  CONF_MODE_WARMUP,     DEFAULT_MODE_WARMUP,     "mdi:sofa",                 False, 5.0, 30.0, 0.1),
-    ("mode_cooldown",  "Eco Temperature",      CONF_MODE_COOLDOWN,   DEFAULT_MODE_COOLDOWN,   "mdi:leaf",                 False, 5.0, 30.0, 0.1),
+    ("comfort_zone",   "Comfort Zone",         CONF_COMFORT_ZONE,   DEFAULT_COMFORT_ZONE,   "mdi:swap-vertical-circle", True,  True,  0.1, 5.0,  0.1),
+    ("mode_away",      "Away Temperature",    CONF_MODE_AWAY,      DEFAULT_MODE_AWAY,      "mdi:home-export-outline",  False, True,  5.0, 30.0, 0.1),
+    ("mode_sleep",     "Sleep Temperature",   CONF_MODE_SLEEP,     DEFAULT_MODE_SLEEP,     "mdi:sleep",                False, True,  5.0, 30.0, 0.1),
+    ("mode_home",      "Home Temperature",    CONF_MODE_HOME,      DEFAULT_MODE_HOME,      "mdi:sofa",                 False, True,  5.0, 30.0, 0.1),
+    ("mode_warmup",    "Comfort Temperature", CONF_MODE_WARMUP,    DEFAULT_MODE_WARMUP,    "mdi:sofa",                 False, True,  5.0, 30.0, 0.1),
+    ("mode_cooldown",  "Eco Temperature",     CONF_MODE_COOLDOWN,  DEFAULT_MODE_COOLDOWN,  "mdi:leaf",                 False, True,  5.0, 30.0, 0.1),
+    ("mode_activity",  "Activity Temperature", CONF_MODE_ACTIVITY, DEFAULT_MODE_ACTIVITY,  "mdi:run",                  False, False, 5.0, 30.0, 0.1),
+    ("mode_boost",     "Boost Temperature",   CONF_MODE_BOOST,     DEFAULT_MODE_BOOST,     "mdi:rocket-launch",        False, False, 5.0, 30.0, 0.1),
 ]
 
 # Map config keys to climate entity attribute names for live in-memory updates
@@ -48,6 +58,8 @@ _PRESET_KEY_MAP = {
     CONF_MODE_HOME: MODE_HOME,
     CONF_MODE_WARMUP: MODE_WARMUP,
     CONF_MODE_COOLDOWN: MODE_COOLDOWN,
+    CONF_MODE_ACTIVITY: MODE_ACTIVITY,
+    CONF_MODE_BOOST: MODE_BOOST,
 }
 
 
@@ -93,6 +105,7 @@ class RoomSettingNumber(NumberEntity):
         default: float,
         icon: str,
         is_delta: bool,
+        enabled_by_default: bool,
         min_v: float,
         max_v: float,
         step: float,
@@ -101,8 +114,10 @@ class RoomSettingNumber(NumberEntity):
         self._config_key = config_key
         self._default = default
         self._is_delta = is_delta
+        self._enabled_by_default = enabled_by_default
 
         self._attr_unique_id = f"{entry.entry_id}_setting_{key_suffix}"
+        self._attr_entity_registry_enabled_default = enabled_by_default
         self._attr_name = name
         self._attr_icon = icon
         self._attr_native_min_value = min_v
@@ -130,9 +145,17 @@ class RoomSettingNumber(NumberEntity):
         Preset temperature numbers are greyed out when the room is inheriting
         values from Global Defaults — editing them is not meaningful then.
         The Comfort Zone number (is_delta=True) is always available.
+        Optional preset numbers are also hidden when that preset is disabled.
         """
         if self._is_delta:
             return True
+        if self._config_key in MODE_ENABLE_KEYS.values():
+            return True
+        preset_mode = _PRESET_KEY_MAP.get(self._config_key)
+        if preset_mode is not None and preset_mode != MODE_HOME:
+            enable_key = MODE_ENABLE_KEYS.get(preset_mode)
+            if enable_key and not bool(self._entry.data.get(enable_key, MODE_ENABLE_DEFAULTS[enable_key])):
+                return False
         return not bool(self._entry.data.get(CONF_USE_GLOBAL_PRESETS, False))
 
     def _global_config(self) -> dict:

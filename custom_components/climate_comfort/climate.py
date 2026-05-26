@@ -60,6 +60,10 @@ from .const import (
     CONF_MINIMUM_TEMPERATURE,
     CONF_MODE_AWAY,
     CONF_MODE_AWAY_PROFILE,
+    CONF_MODE_ACTIVITY,
+    CONF_MODE_ACTIVITY_PROFILE,
+    CONF_MODE_BOOST,
+    CONF_MODE_BOOST_PROFILE,
     CONF_MODE_COOLDOWN,
     CONF_MODE_COOLDOWN_PROFILE,
     CONF_MODE_HOME,
@@ -85,9 +89,13 @@ from .const import (
     DEFAULT_MAX_TEMP,
     DEFAULT_MIN_TEMP,
     DEFAULT_MODE_AWAY,
+    DEFAULT_MODE_ACTIVITY,
+    DEFAULT_MODE_BOOST,
     DEFAULT_MODE_COOLDOWN,
     DEFAULT_MODE_HOME,
     DEFAULT_MODE_PROFILE_AWAY,
+    DEFAULT_MODE_PROFILE_ACTIVITY,
+    DEFAULT_MODE_PROFILE_BOOST,
     DEFAULT_MODE_PROFILE_COOLDOWN,
     DEFAULT_MODE_PROFILE_HOME,
     DEFAULT_MODE_PROFILE_SLEEP,
@@ -107,9 +115,14 @@ from .const import (
     DOMAIN,
     ENTRY_TYPE_GLOBAL,
     MODE_AWAY,
+    MODE_ACTIVITY,
+    MODE_BOOST,
     MODE_COOLDOWN,
+    MODE_ENABLE_DEFAULTS,
+    MODE_ENABLE_KEYS,
     MODE_HOME,
     MODE_OPTIONS,
+    OPTIONAL_MODE_OPTIONS,
     MODE_SLEEP,
     MODE_WARMUP,
     PROFILE_AGGRESSIVE,
@@ -133,6 +146,17 @@ _LEGACY_MODE_ALIASES: dict[str, str] = {
     "warmup": MODE_WARMUP,
     "cooldown": MODE_COOLDOWN,
 }
+
+
+def _enabled_modes_from_config(cfg: dict) -> list[str]:
+    enabled = [MODE_HOME]
+    for mode in OPTIONAL_MODE_OPTIONS:
+        key = MODE_ENABLE_KEYS[mode]
+        default = MODE_ENABLE_DEFAULTS[key]
+        if bool(cfg.get(key, default)):
+            enabled.append(mode)
+    return enabled
+
 
 _HOUSE_MODE_TO_PRESET: dict[str, str] = {
     **_LEGACY_MODE_ALIASES,
@@ -172,6 +196,8 @@ _MODE_CONFIG = {
     MODE_HOME: (CONF_MODE_HOME, CONF_MODE_HOME_PROFILE, DEFAULT_MODE_HOME, DEFAULT_MODE_PROFILE_HOME),
     MODE_WARMUP: (CONF_MODE_WARMUP, CONF_MODE_WARMUP_PROFILE, DEFAULT_MODE_WARMUP, DEFAULT_MODE_PROFILE_WARMUP),
     MODE_COOLDOWN: (CONF_MODE_COOLDOWN, CONF_MODE_COOLDOWN_PROFILE, DEFAULT_MODE_COOLDOWN, DEFAULT_MODE_PROFILE_COOLDOWN),
+    MODE_ACTIVITY: (CONF_MODE_ACTIVITY, CONF_MODE_ACTIVITY_PROFILE, DEFAULT_MODE_ACTIVITY, DEFAULT_MODE_PROFILE_ACTIVITY),
+    MODE_BOOST: (CONF_MODE_BOOST, CONF_MODE_BOOST_PROFILE, DEFAULT_MODE_BOOST, DEFAULT_MODE_PROFILE_BOOST),
 }
 
 
@@ -334,7 +360,9 @@ class ClimateComfortEntity(ClimateEntity):
             self._mode_temps[mode] = _resolve(temp_key, temp_default)
             self._mode_profiles[mode] = str(g.get(profile_key, cfg.get(profile_key, profile_default)))
 
-        self._attr_preset_modes = [PRESET_NONE, *MODE_OPTIONS]
+        mode_source = g or cfg
+        self._enabled_modes = _enabled_modes_from_config(mode_source)
+        self._attr_preset_modes = [PRESET_NONE, *self._enabled_modes]
         self._attr_preset_mode = MODE_HOME
 
         self._devices: list[_Device] = [_Device(d) for d in devices_data]
@@ -449,7 +477,7 @@ class ClimateComfortEntity(ClimateEntity):
 
         elif entity_id == self._house_mode_entity:
             preset = _HOUSE_MODE_TO_PRESET.get(new_state.state.lower())
-            if preset:
+            if preset and preset in self._enabled_modes:
                 self._attr_preset_mode = preset
                 self._attr_target_temperature = self._mode_temps.get(preset, self._attr_target_temperature)
                 self.hass.async_create_task(self._evaluate_devices())
@@ -739,6 +767,8 @@ class ClimateComfortEntity(ClimateEntity):
         self.async_write_ha_state()
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
+        if preset_mode != PRESET_NONE and preset_mode not in self._attr_preset_modes:
+            raise HomeAssistantError(f"Unsupported preset mode: {preset_mode}")
         self._attr_preset_mode = preset_mode
         if preset_mode not in (PRESET_NONE,):
             self._attr_target_temperature = self._mode_temps.get(preset_mode, self._attr_target_temperature)

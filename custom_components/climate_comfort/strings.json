@@ -242,25 +242,43 @@
       },
       "edit_global_modes": {
         "title": "Global Defaults \u2014 Mode temperatures",
-        "description": "Target temperatures and aggressiveness profile used by each house mode.",
+        "description": "Target temperatures, aggressiveness profile, and availability used by each house mode.",
         "data": {
           "mode_away": "Away temperature",
           "mode_away_profile": "Away aggressiveness",
+          "mode_away_enabled": "Enable Away mode",
           "mode_sleep": "Sleep temperature",
           "mode_sleep_profile": "Sleep aggressiveness",
+          "mode_sleep_enabled": "Enable Sleep mode",
           "mode_home": "Home temperature",
           "mode_home_profile": "Home aggressiveness",
           "mode_warmup": "Comfort temperature",
           "mode_warmup_profile": "Comfort aggressiveness",
+          "mode_warmup_enabled": "Enable Comfort mode",
           "mode_cooldown": "Eco temperature",
-          "mode_cooldown_profile": "Eco aggressiveness"
+          "mode_cooldown_profile": "Eco aggressiveness",
+          "mode_cooldown_enabled": "Enable Eco mode",
+          "mode_activity": "Activity temperature",
+          "mode_activity_profile": "Activity aggressiveness",
+          "mode_activity_enabled": "Enable Activity mode",
+          "mode_boost": "Boost temperature",
+          "mode_boost_profile": "Boost aggressiveness",
+          "mode_boost_enabled": "Enable Boost mode"
         },
         "data_description": {
           "mode_away": "Protection / away setpoint.",
+          "mode_away_enabled": "Turn the Away preset on or off in the generated selectors and climate entity.",
           "mode_sleep": "Night-time target temperature.",
+          "mode_sleep_enabled": "Turn the Sleep preset on or off in the generated selectors and climate entity.",
           "mode_home": "Normal occupied target temperature.",
           "mode_warmup": "Comfort preset target temperature.",
-          "mode_cooldown": "Eco preset target temperature."
+          "mode_warmup_enabled": "Turn the Comfort preset on or off in the generated selectors and climate entity.",
+          "mode_cooldown": "Eco preset target temperature.",
+          "mode_cooldown_enabled": "Turn the Eco preset on or off in the generated selectors and climate entity.",
+          "mode_activity": "Activity preset target temperature.",
+          "mode_activity_enabled": "Turn the Activity preset on or off in the generated selectors and climate entity.",
+          "mode_boost": "Boost preset target temperature.",
+          "mode_boost_enabled": "Turn the Boost preset on or off in the generated selectors and climate entity."
         }
       },
       "edit_global_profiles": {

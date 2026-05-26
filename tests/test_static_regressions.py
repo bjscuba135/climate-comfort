@@ -64,10 +64,18 @@ def test_fixed_mode_names_use_home_assistant_icon_backed_presets():
     assert 'MODE_HOME = "home"' in CONST
     assert 'MODE_WARMUP = "comfort"' in CONST
     assert 'MODE_COOLDOWN = "eco"' in CONST
-    assert 'MODE_OPTIONS = [MODE_AWAY, MODE_SLEEP, MODE_HOME, MODE_WARMUP, MODE_COOLDOWN]' in CONST
-    select_options_area = SELECT.split("HOUSE_MODE_OPTIONS = MODE_OPTIONS", 1)[1].split("_LEGACY_MODE_ALIASES", 1)[0]
-    assert '"warmup"' not in select_options_area
-    assert '"cooldown"' not in select_options_area
+    assert 'MODE_ACTIVITY = "activity"' in CONST
+    assert 'MODE_BOOST = "boost"' in CONST
+    assert 'MODE_OPTIONS = [MODE_AWAY, MODE_SLEEP, MODE_HOME, MODE_WARMUP, MODE_COOLDOWN, MODE_ACTIVITY, MODE_BOOST]' in CONST
+    assert 'OPTIONAL_MODE_OPTIONS = [MODE_AWAY, MODE_SLEEP, MODE_WARMUP, MODE_COOLDOWN, MODE_ACTIVITY, MODE_BOOST]' in CONST
+    assert 'MODE_ENABLE_KEYS = {' in CONST
+    assert 'MODE_ENABLE_DEFAULTS = {' in CONST
+    assert 'DEFAULT_MODE_ACTIVITY_ENABLED = False' in CONST
+    assert 'DEFAULT_MODE_BOOST_ENABLED = False' in CONST
+    assert '_enabled_house_mode_options' in SELECT
+    assert 'HOUSE_MODE_OPTIONS = MODE_OPTIONS' not in SELECT
+    assert '"warmup"' not in SELECT.split('_LEGACY_MODE_ALIASES', 1)[0]
+    assert '"cooldown"' not in SELECT.split('_LEGACY_MODE_ALIASES', 1)[0]
     assert '_LEGACY_MODE_ALIASES' in SELECT
     assert '"warmup": MODE_WARMUP' in SELECT
     assert '"cooldown": MODE_COOLDOWN' in SELECT
@@ -112,12 +120,24 @@ def test_global_defaults_options_are_split_into_sub_pages_with_mode_temperature_
     global_strings = STRINGS["options"]["step"]
     assert "edit_global_modes" in global_strings
     assert "mode_home" in global_strings["edit_global_modes"]["data"]
+    assert "mode_activity" in global_strings["edit_global_modes"]["data"]
+    assert "mode_boost" in global_strings["edit_global_modes"]["data"]
+    assert "mode_away_enabled" in global_strings["edit_global_modes"]["data"]
+    assert "mode_activity_enabled" in global_strings["edit_global_modes"]["data"]
+    assert "mode_boost_enabled" in global_strings["edit_global_modes"]["data"]
     assert "edit_global_modes" in TRANSLATIONS["options"]["step"]
     assert "mode_home" in TRANSLATIONS["options"]["step"]["edit_global_modes"]["data"]
+    assert "mode_activity" in TRANSLATIONS["options"]["step"]["edit_global_modes"]["data"]
+    assert "mode_boost" in TRANSLATIONS["options"]["step"]["edit_global_modes"]["data"]
+    assert "mode_away_enabled" in TRANSLATIONS["options"]["step"]["edit_global_modes"]["data"]
+    assert "mode_activity_enabled" in TRANSLATIONS["options"]["step"]["edit_global_modes"]["data"]
+    assert "mode_boost_enabled" in TRANSLATIONS["options"]["step"]["edit_global_modes"]["data"]
 
     modes_body = _method_body(CONFIG_FLOW, "async def async_step_edit_global_modes", "async def async_step_edit_global_profiles")
     assert "_mode_schema(cfg)" in modes_body
     assert "async_update_entry" in modes_body
+    assert "CONF_MODE_ACTIVITY_ENABLED" in CONFIG_FLOW
+    assert "CONF_MODE_BOOST_ENABLED" in CONFIG_FLOW
 
 
 def test_room_aggressiveness_page_persists_room_profile_settings_and_climate_uses_them():

@@ -23,6 +23,9 @@ A custom Home Assistant integration that turns any collection of switches, fans,
   - [House and Floor Mode](#house-and-floor-mode)
 - [Entities Reference](#entities-reference)
 - [Tips and Examples](#tips-and-examples)
+- [Dashboard Example](#dashboard-example)
+  - [Recommended layout](#recommended-layout)
+  - [Example Lovelace view](#example-lovelace-view)
 
 ---
 
@@ -33,7 +36,7 @@ Climate Comfort creates a **virtual thermostat** for each room. You tell it whic
 1. Reads the room temperature continuously.
 2. Compares it against the current setpoint and comfort zone to decide whether heating or cooling is needed.
 3. Activates or deactivates controlled devices accordingly, using configurable thresholds and hysteresis to prevent rapid cycling.
-4. Responds to preset changes (Eco, Comfort, Boost, Away) from the thermostat card, automations, or a shared House Mode selector.
+4. Responds to preset changes (Away, Sleep, Home, Comfort, Eco, Activity, Boost) from the thermostat card, automations, or a shared House Mode selector.
 
 ---
 
@@ -41,7 +44,9 @@ Climate Comfort creates a **virtual thermostat** for each room. You tell it whic
 
 - **Comfort-zone deadband** — no devices run while the room is within ±X °C of the setpoint, avoiding constant micro-cycling
 - **Multi-stage escalation** — add multiple devices to a room; each stage fires at a different distance from the boundary (e.g. a fan at the boundary, an air conditioner 3°C beyond it)
-- **Four preset modes** — Eco, Comfort, Boost, Away — with individual temperature setpoints
+- **Built-in Home Assistant presets** — supports `away`, `sleep`, `home`, `comfort`, `eco`, `activity`, and `boost`
+- **Preset availability toggles** — choose which optional presets appear in the climate entity and House / Floor Mode selectors; `home` and `none` are always available
+- **Mode-specific temperatures and aggressiveness** — each built-in preset can have its own target temperature and profile
 - **Away protection band** — Away mode uses independent low/high limits rather than a single setpoint; nothing runs while the room is inside the band
 - **Dehumidifier support** — humidity-based control independent of temperature, with optional suppression when heating/cooling is active
 - **Manual hold detection** — automatically detects when a device has been changed outside of automation and suspends control for a configurable period
@@ -107,14 +112,20 @@ Do not keep both the old manual copy and the HACS-managed copy in place at the s
 
 ### Global Defaults (optional)
 
-It is recommended to create a **Global Defaults** entry first if you have more than one room. This gives you a single place to manage shared preset temperatures and creates House Mode / Floor Mode selectors that all rooms can follow.
+It is recommended to create a **Global Defaults** entry first if you have more than one room. This gives you a single place to manage shared mode temperatures, preset availability toggles, aggressiveness profiles, and House Mode / Floor Mode selectors that all rooms can follow.
 
 1. **Settings → Devices & Services → Add Integration → Climate Comfort**
 2. Choose **Global defaults (shared preset temperatures)**
-3. Set your default Comfort Zone width and preset temperatures
+3. Configure shared mode temperatures, preset availability toggles, and aggressiveness profiles
 4. Optionally add floor names (e.g. *Ground Floor*, *First Floor*) — each creates a dedicated mode selector
 
 A **Global Settings** device is created containing the House Mode selector and any floor selectors.
+
+Default preset availability:
+
+- Always available: `none`, `home`
+- Enabled by default: `away`, `sleep`, `comfort`, `eco`
+- Disabled by default: `activity`, `boost`
 
 ---
 
@@ -131,9 +142,9 @@ A **Global Settings** device is created containing the House Mode selector and a
 | **Comfort zone width** | Half-width of the deadband either side of the setpoint (±°C) |
 | **House / floor mode entity** | Optional — a `select` entity whose state sets the active preset |
 | **Manual override hold period** | Hours to suspend control after a manual device change (0 = disabled) |
-| **Use global preset temperatures** | Inherit Eco / Comfort / Boost / Away values from Global Defaults |
+| **Use global preset temperatures** | Inherit shared mode temperatures from Global Defaults |
 
-If you choose not to use global presets, a second step lets you configure preset temperatures for this room.
+If you choose not to use global presets, a second step lets you configure this room's mode temperatures and profiles locally.
 
 ---
 
@@ -199,15 +210,27 @@ The comfort zone can be adjusted live from the device page's **Comfort Zone** nu
 
 ### Preset Modes
 
+Climate Comfort uses built-in Home Assistant climate presets for the room thermostat:
+
 | Preset | Behaviour |
 |---|---|
 | **None** | Uses whatever temperature was last set manually on the thermostat card |
-| **Eco** | Energy-saving setpoint — typically cooler in winter, warmer in summer |
-| **Comfort** | Normal occupied setpoint |
-| **Boost** | Maximum heating or cooling target |
-| **Away** | Protection band — heating only fires below the Away Low limit; cooling only fires above the Away High limit |
+| **Away** | Lower occupied expectation / protection-oriented target |
+| **Sleep** | Cooler or quieter overnight target |
+| **Home** | Default occupied target and the fallback mode that is always available |
+| **Comfort** | Warmer / more comfortable occupied target |
+| **Eco** | Reduced / setback target |
+| **Activity** | Cooler occupied target intended for more active periods |
+| **Boost** | Temporary high-priority target |
 
-Preset temperatures can be edited live from the number entities on the device page. Editing a preset number automatically stops inheriting from Global Defaults for that room.
+Preset availability is configurable in **Global Defaults → Mode temperatures**:
+
+- `none` and `home` are always available
+- Optional presets can be turned on or off individually
+- House Mode / Floor Mode selectors only show presets that are enabled
+- Room thermostats reject disabled presets if a dashboard or automation tries to set one
+
+Preset temperatures can be edited live from the number entities on the device page. `Activity Temperature` and `Boost Temperature` are created disabled by default in the entity registry so they can be surfaced only when wanted.
 
 ---
 
@@ -262,7 +285,7 @@ Set the hold period to `0` to disable this feature entirely.
 
 ### House and Floor Mode
 
-The **Global Defaults** entry creates a **House Mode** select entity with four options: `comfort`, `eco`, `boost`, `away`. Rooms configured to follow this entity automatically switch preset when the house mode changes.
+The **Global Defaults** entry creates a **House Mode** select entity whose options are built from the currently enabled presets. `home` is always present, while optional presets such as `away`, `sleep`, `comfort`, `eco`, `activity`, and `boost` appear only when enabled in Global Defaults.
 
 If you added floor names to Global Defaults, each floor also gets its own **Floor Mode** selector. When House Mode changes it cascades to every floor, but you can override individual floors independently.
 
@@ -278,12 +301,14 @@ In the room's settings, set *House / floor mode entity* to either the House Mode
 
 | Entity | Type | Description |
 |---|---|---|
-| *(Room name)* | `climate` | The main thermostat — shows current temperature, HVAC action, setpoint, and preset |
+| *(Room name)* | `climate` | The main thermostat — shows current temperature, HVAC action, setpoint, preset, and rich diagnostic attributes such as thresholds, effective comfort zone, active profile, point spacing, and any manual holds |
 | *(Device label) (<trigger temp>)* | `binary_sensor` | One per configured device — Running when active, Idle otherwise. Attributes include trigger temperatures and manual override status |
 | **Comfort Zone** | `number` | Live-editable deadband half-width |
-| **Eco / Comfort / Boost Temperature** | `number` | Live-editable preset setpoints (greyed out when inheriting from Global Defaults) |
-| **Away Lower / Upper Limit** | `number` | Live-editable Away protection band limits |
-| **Using Global Presets** | `switch` | Toggle whether this room inherits presets from Global Defaults |
+| **Away / Sleep / Home / Comfort / Eco Temperature** | `number` | Core mode temperatures shown by default |
+| **Activity Temperature** | `number` | Optional live-editable preset temperature; disabled by default in the entity registry |
+| **Boost Temperature** | `number` | Optional live-editable preset temperature; disabled by default in the entity registry |
+| **Using Global Presets** | `switch` | Toggle whether this room inherits shared mode temperatures from Global Defaults |
+| **Aggressiveness** | `select` | Runtime per-room profile override. `mode_default` follows the active mode's configured profile |
 | **Dehumidification** | `switch` | Suspend / resume dehumidifier control (only created when a dehumidifier device is configured) |
 | **Reset to Automated Control** | `button` | Clears all manual holds and immediately resumes automated control |
 
@@ -291,7 +316,7 @@ In the room's settings, set *House / floor mode entity* to either the House Mode
 
 | Entity | Type | Description |
 |---|---|---|
-| **House Mode** | `select` | Whole-home mode selector — cascades to all floor selectors and directly-subscribed rooms |
+| **House Mode** | `select` | Whole-home mode selector — cascades to all floor selectors and directly-subscribed rooms; only enabled presets are shown |
 | *(Floor name)* **Mode** | `select` | One per configured floor name — follows House Mode but can be overridden independently |
 
 ---
@@ -305,10 +330,141 @@ The simplest setup — one radiator or electric heater turns on when the room dr
 Set the second device's activate offset higher (e.g. 2 °C). The backup only fires if the primary hasn't managed to bring the room up within 2 °C of the boundary — useful for slow systems.
 
 **Use Away mode for frost protection:**
-Set Away Low to 8 °C and Away High to 35 °C. Nothing runs in normal conditions; heating only fires if the room goes dangerously cold.
+Set the Away temperature low enough to protect the room while still reducing normal runtime.
 
 **Global Defaults + per-room override:**
-Create Global Defaults with your typical temperatures. Turn on *Use global preset temperatures* for every room. For a room that runs warmer (e.g. a home office), open its options, go to *Edit preset temperatures*, and set custom values — the *Using Global Presets* switch turns off automatically.
+Create Global Defaults with your typical temperatures. Turn on *Use global preset temperatures* for every room. For a room that runs warmer (e.g. a home office), open its options, go to *Edit mode temperatures*, and set custom values — the *Using Global Presets* switch turns off automatically.
+
+**Use Activity and Boost selectively:**
+`Activity` and `Boost` are disabled by default so the everyday UI stays clean. Enable them only for rooms or households where they add real value.
+
+**Use the Aggressiveness select for temporary tuning:**
+Leave the room on `mode_default` most of the time, then temporarily switch to `responsive` or `aggressive` if a room needs tighter control without editing the stored mode configuration.
 
 **Suppress the dehumidifier during heating:**
 Enable *Only run when not heating or cooling* on the dehumidifier device. Running both a heater and a dehumidifier simultaneously often works against each other, especially in small rooms.
+
+---
+
+## Dashboard Example
+
+A good end-user dashboard for Climate Comfort should expose three layers clearly:
+
+1. **Quick room control** — current temp, preset, and target
+2. **Tuning controls** — comfort zone, key mode temperatures, aggressiveness
+3. **Diagnostics** — thresholds, active devices, manual holds
+
+The integration already exposes useful entities and attributes for this without needing a bespoke frontend card. A ready-to-import example is also included at `examples/lovelace/climate-comfort-dashboard.yaml`.
+
+### Recommended layout
+
+- **Top row:** one thermostat card per important room
+- **Second row:** shared house controls (`House Mode`, floor modes)
+- **Third row:** room tuning entities (`Comfort Zone`, core temperatures, `Aggressiveness`)
+- **Bottom row:** diagnostics glance / entities card for manual holds and active stages
+
+### Example Lovelace view
+
+```yaml
+title: Climate Comfort
+path: climate-comfort
+icon: mdi:home-thermometer
+cards:
+  - type: grid
+    columns: 2
+    square: false
+    cards:
+      - type: thermostat
+        entity: climate.lounge
+        name: Lounge
+        features:
+          - type: climate-preset-modes
+            style: dropdown
+      - type: thermostat
+        entity: climate.bedroom
+        name: Bedroom
+        features:
+          - type: climate-preset-modes
+            style: dropdown
+
+  - type: entities
+    title: House Modes
+    show_header_toggle: false
+    entities:
+      - entity: select.global_settings_house_mode
+        name: House Mode
+      - entity: select.global_settings_ground_floor_mode
+        name: Ground Floor
+      - entity: select.global_settings_first_floor_mode
+        name: First Floor
+
+  - type: grid
+    columns: 2
+    square: false
+    cards:
+      - type: entities
+        title: Lounge Tuning
+        show_header_toggle: false
+        entities:
+          - entity: select.lounge_aggressiveness
+            name: Aggressiveness
+          - entity: number.lounge_comfort_zone
+            name: Comfort Zone
+          - entity: number.lounge_mode_home
+            name: Home Temperature
+          - entity: number.lounge_mode_warmup
+            name: Comfort Temperature
+          - entity: number.lounge_mode_cooldown
+            name: Eco Temperature
+          - entity: switch.lounge_using_global_presets
+            name: Use Global Presets
+      - type: entities
+        title: Bedroom Tuning
+        show_header_toggle: false
+        entities:
+          - entity: select.bedroom_aggressiveness
+            name: Aggressiveness
+          - entity: number.bedroom_comfort_zone
+            name: Comfort Zone
+          - entity: number.bedroom_mode_sleep
+            name: Sleep Temperature
+          - entity: number.bedroom_mode_home
+            name: Home Temperature
+          - entity: number.bedroom_mode_warmup
+            name: Comfort Temperature
+          - entity: switch.bedroom_using_global_presets
+            name: Use Global Presets
+
+  - type: entities
+    title: Lounge Diagnostics
+    show_header_toggle: false
+    entities:
+      - entity: climate.lounge
+        name: Lounge Thermostat
+        secondary_info: last-changed
+      - entity: binary_sensor.lounge_radiator
+      - entity: binary_sensor.lounge_aircon_cool
+      - entity: button.lounge_reset_to_automated_control
+```
+
+### Best UI ideas for end users
+
+- Keep `Activity` and `Boost` hidden unless the household actually uses them.
+- Use the thermostat card for preset changes, not a separate entities list, when possible.
+- Put `Aggressiveness` near `Comfort Zone` so users understand both are tuning controls.
+- Treat diagnostics as a collapsible or lower-priority section.
+- Surface the reset button only where manual holds are likely to confuse people.
+
+### If you want a richer custom visual
+
+The next step would be a dedicated Lovelace card that groups:
+
+- current room temperature
+- active preset
+- effective comfort zone
+- lower / upper thresholds
+- active devices
+- manual hold warning banner
+- inline chips for mode selection and aggressiveness
+
+That would likely be best as a small custom card or a decluttering-card/button-card template package rather than adding more integration entities.
