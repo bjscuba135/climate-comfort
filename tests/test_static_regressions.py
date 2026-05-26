@@ -95,15 +95,21 @@ def test_global_profile_settings_are_required_and_one_decimal_place():
     assert "DEFAULT_TEMP_STEP = 0.1" in CONST
 
 
-def test_preset_switching_restores_cached_comfort_zone_without_querying_hass():
+def test_preset_switching_and_number_refresh_use_cached_global_config_when_hass_is_unavailable():
     preset_body = _method_body(CLIMATE, "async def async_set_preset_mode", "async def async_set_temperature")
     state_change_body = _method_body(CLIMATE, "def _handle_state_change", "# How long after our last service call")
+    number_setup_body = _method_body((REPOSITORY_ROOT / "number.py").read_text(), "async def async_setup_entry", "class RoomSettingNumber")
+    number_global_body = _method_body((REPOSITORY_ROOT / "number.py").read_text(), "def _global_config", "def _refresh_value")
     assert "def _restore_configured_comfort_zone" in CLIMATE
     assert "self._global_comfort_zone" in CLIMATE
     assert "self._local_comfort_zone" in CLIMATE
     assert "_get_global_config(self.hass)" not in preset_body
     assert preset_body.count("self._restore_configured_comfort_zone()") >= 2
     assert "self._restore_configured_comfort_zone()" in state_change_body
+    assert "global_cfg = next(" in number_setup_body
+    assert "RoomSettingNumber(entry, global_cfg" in number_setup_body
+    assert "if self.hass is not None:" in number_global_body
+    assert "return self._global_cfg" in number_global_body
 
 
 def test_new_room_setup_requires_global_defaults_and_uses_modes_not_legacy_presets():

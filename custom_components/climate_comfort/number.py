@@ -63,8 +63,16 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
+    global_cfg = next(
+        (
+            existing.data
+            for existing in hass.config_entries.async_entries(DOMAIN)
+            if existing.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_GLOBAL
+        ),
+        {},
+    )
     numbers = [
-        RoomSettingNumber(entry, *defn)
+        RoomSettingNumber(entry, global_cfg, *defn)
         for defn in _NUMBER_DEFS
     ]
     hass.data[DOMAIN][entry.entry_id]["room_sensors"] = numbers  # shared key used by climate sync
@@ -94,6 +102,7 @@ class RoomSettingNumber(NumberEntity):
     def __init__(
         self,
         entry: ConfigEntry,
+        global_cfg: dict,
         key_suffix: str,
         name: str,
         config_key: str,
@@ -106,6 +115,7 @@ class RoomSettingNumber(NumberEntity):
         step: float,
     ) -> None:
         self._entry = entry
+        self._global_cfg = dict(global_cfg)
         self._config_key = config_key
         self._default = default
         self._is_delta = is_delta
@@ -154,10 +164,12 @@ class RoomSettingNumber(NumberEntity):
         return not bool(self._entry.data.get(CONF_USE_GLOBAL_PRESETS, False))
 
     def _global_config(self) -> dict:
-        for e in self.hass.config_entries.async_entries(DOMAIN):
-            if e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_GLOBAL:
-                return e.data
-        return {}
+        if self.hass is not None:
+            for e in self.hass.config_entries.async_entries(DOMAIN):
+                if e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_GLOBAL:
+                    self._global_cfg = dict(e.data)
+                    return e.data
+        return self._global_cfg
 
     def _refresh_value(self) -> None:
         """Recompute native_value, honouring use_global_presets for preset keys."""
