@@ -433,3 +433,60 @@ def test_secondary_climate_attribute_fields_are_offered_only_when_entity_support
         assert "fan_mode" in fields["data_description"]
         assert "swing_mode" in fields["data_description"]
         assert "swing_horizontal_mode" in fields["data_description"]
+
+
+def test_mode_preset_and_setpoint_survive_a_restart():
+    # Without RestoreEntity every restart reverted the room to Home/HEAT_COOL/21C,
+    # which is enough on its own to start heating or cooling seconds after boot.
+    assert "from homeassistant.helpers.restore_state import RestoreEntity" in CLIMATE
+    assert "class ClimateComfortEntity(ClimateEntity, RestoreEntity):" in CLIMATE
+    assert "await self._restore_previous_state()" in CLIMATE
+
+    body = _method_body(CLIMATE, "async def _restore_previous_state", "def _adopt_house_mode")
+    assert "await self.async_get_last_state()" in body
+    assert "if last.state in self._attr_hvac_modes" in body
+    assert 'last.attributes.get("preset_mode")' in body
+    assert "last.attributes.get(ATTR_TEMPERATURE)" in body
+    # A restored setpoint must be sanity-checked, not trusted blindly.
+    assert "self._minimum_temperature <= restored <= self._maximum_temperature" in body
+    # A restored preset wins over the house/floor selector; the selector is only
+    # consulted when there is nothing to restore.
+    assert "if last is None" in body
+    assert body.index("if last is None") < body.index("_adopt_house_mode()")
+
+    house = _method_body(CLIMATE, "def _adopt_house_mode", "async def async_added_to_hass")
+    assert "self._house_mode_entity" in house
+    assert "state.state not in self._attr_preset_modes" in house
+
+
+def test_startup_sync_skips_entities_that_have_not_loaded_yet():
+    body = _method_body(CLIMATE, "if not self._initial_sync_done:", "if self._hold_hours <= 0")
+    # A device that has not loaded reads as "off". Syncing it would record every
+    # running device as inactive, and turn its arrival into a manual override.
+    assert "if self._entity_unavailable(device.entity_id)" in body
+    assert "continue" in body
+    assert "self._synced_entities.add(device.entity_id)" in body
+    # The latch must not close while Home Assistant is still starting up.
+    assert "if not self.hass.is_running" in body
+    assert body.index("if not self.hass.is_running") < body.index("self._initial_sync_done = True")
+
+
+def test_unavailable_devices_are_never_treated_as_manual_overrides():
+    assert "def _entity_unavailable" in CLIMATE
+    helper = _method_body(CLIMATE, "def _entity_unavailable", "def _device_is_on")
+    assert "STATE_UNAVAILABLE" in helper and "STATE_UNKNOWN" in helper
+    assert "state is None" in helper
+
+    body = _method_body(CLIMATE, "def _check_manual_changes", "def _trigger_manual_hold")
+    guard = body.split("checked.add(eid)", 1)[1]
+    # Offline is not off: clear any mismatch in progress and stop judging.
+    assert "if self._entity_unavailable(eid)" in guard
+    assert "self._synced_entities.discard(eid)" in guard
+    assert "self._manual_mismatch_seen.pop(eid, None)" in guard
+    # An entity seen for the first time (late load, or back from an outage) is
+    # adopted from actual state rather than blamed on the user.
+    assert "if eid not in self._synced_entities" in guard
+    assert "stage.is_active = self._device_matches_actual(stage)" in guard
+    # Both guards must run before any hold can be triggered.
+    assert guard.index("if self._entity_unavailable(eid)") < guard.index("_trigger_manual_hold")
+    assert guard.index("if eid not in self._synced_entities") < guard.index("_trigger_manual_hold")

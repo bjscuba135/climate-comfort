@@ -21,6 +21,7 @@ A custom Home Assistant integration that turns any collection of switches, fans,
   - [Target Temp Offset](#target-temp-offset)
   - [Fan Speed and Swing Direction](#fan-speed-and-swing-direction)
   - [Manual Hold Detection](#manual-hold-detection)
+  - [Startup and Restarts](#startup-and-restarts)
   - [House and Floor Mode](#house-and-floor-mode)
 - [Entities Reference](#entities-reference)
 - [Tips and Examples](#tips-and-examples)
@@ -334,6 +335,39 @@ Climate Comfort watches the actual state of every controlled device and compares
 - The **Reset to Automated Control** button clears all holds immediately and resumes normal operation
 
 Set the hold period to `0` to disable this feature entirely.
+
+A device that is **unavailable** is never treated as a manual override. Offline is
+not the same as switched off, so a unit that drops off the network — a WiFi air
+conditioner is a good candidate — will not trigger a hold while it is away, and its
+real state is re-read when it comes back rather than being blamed on you.
+
+---
+
+### Startup and Restarts
+
+**Your settings survive a restart.** The room's HVAC mode, preset and target
+temperature are restored exactly as they were. A room left in Eco, or Away, or
+switched off, comes back that way.
+
+A restored preset takes priority over the House / Floor Mode selector, so a
+deliberate per-room override is not undone by a restart. The selector is consulted
+only when there is nothing to restore, which in practice means the first time a room
+runs after you create it.
+
+> Before v1.3.0 there was no restoration at all: every restart silently reset the
+> room to Home / `heat_cool` / 21 °C. On a mild day that is enough to start the
+> heating or the air conditioning within seconds of Home Assistant booting.
+
+**Devices already running at boot are adopted, not fought.** Climate Comfort is
+routinely loaded before the integrations it controls, so it waits: a controlled
+entity that has not appeared yet is skipped rather than recorded as "off", and
+automated control only begins once Home Assistant has finished starting. A device
+that was left running is matched to whichever configured stage corresponds to its
+actual HVAC mode, so it carries on rather than being switched off and immediately
+flagged as a manual change.
+
+The same applies to any device that shows up late or returns from an outage — its
+real state is adopted the first time it can be read.
 
 ---
 

@@ -29,6 +29,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
     ATTR_ACTIVE_DEVICES,
@@ -309,7 +310,7 @@ class _Device:
         return self.entity_id.startswith("climate.")
 
 
-class ClimateComfortEntity(ClimateEntity):
+class ClimateComfortEntity(ClimateEntity, RestoreEntity):
     """
     Multi-stage room thermostat with comfort-zone deadband.
 
@@ -433,6 +434,11 @@ class ClimateComfortEntity(ClimateEntity):
         self._manual_mismatch_seen: dict[str, float] = {}
         # entity_id → {"since": datetime, "user_id": str|None}
         self._manual_holds: dict[str, dict] = {}
+        # entity_ids whose real state we have actually observed. Hold detection is
+        # only meaningful for these: an entity we have never seen (still loading at
+        # boot) or one that has gone unavailable must never be judged a manual
+        # override, because we have nothing trustworthy to compare against.
+        self._synced_entities: set[str] = set()
         # True once the first evaluation has run and is_active flags are in sync.
         # On the very first evaluation we align is_active with actual device state
         # rather than treating any divergence as a manual override.
@@ -451,7 +457,64 @@ class ClimateComfortEntity(ClimateEntity):
     # Lifecycle
     # ------------------------------------------------------------------
 
+    async def _restore_previous_state(self) -> None:
+        """Reinstate HVAC mode, preset and setpoint from before the restart.
+
+        Without this, every Home Assistant restart silently reverted the room to
+        the hardcoded Home / HEAT_COOL / 21 °C defaults, discarding whatever the
+        user or an automation had set. That is not a cosmetic reset: a room left
+        in Eco or Away comes back at a far more demanding setpoint and can start
+        heating or cooling on its own within seconds of boot.
+
+        A restored preset deliberately wins over the house/floor selector — a
+        per-room override survives a restart. The selector is only consulted when
+        there is nothing to restore, which means the first run after the room is
+        created.
+        """
+        last = await self.async_get_last_state()
+        if last is None:
+            self._adopt_house_mode()
+            return
+
+        if last.state in self._attr_hvac_modes:
+            self._attr_hvac_mode = HVACMode(last.state)
+
+        preset = last.attributes.get("preset_mode")
+        if preset in self._attr_preset_modes:
+            self._attr_preset_mode = preset
+            if preset in self._mode_temps:
+                self._attr_target_temperature = self._mode_temps[preset]
+
+        # Applied after the preset so a setpoint the user nudged by hand is not
+        # thrown away by the preset's default temperature.
+        temperature = last.attributes.get(ATTR_TEMPERATURE)
+        if temperature is not None:
+            try:
+                restored = float(temperature)
+            except (TypeError, ValueError):
+                restored = None
+            if restored is not None and self._minimum_temperature <= restored <= self._maximum_temperature:
+                self._attr_target_temperature = restored
+
+    def _adopt_house_mode(self) -> None:
+        """Adopt the house/floor selector's current preset, if one is wired up.
+
+        Only used when there is no previous state to restore. Previously the
+        selector was tracked for changes but never read at startup, so a room
+        stayed on the hardcoded Home default until the selector next moved.
+        """
+        if not self._house_mode_entity:
+            return
+        state = self.hass.states.get(self._house_mode_entity)
+        if state is None or state.state not in self._attr_preset_modes:
+            return
+        self._attr_preset_mode = state.state
+        if state.state in self._mode_temps:
+            self._attr_target_temperature = self._mode_temps[state.state]
+
     async def async_added_to_hass(self) -> None:
+        await self._restore_previous_state()
+
         entities_to_track = [self._temp_sensor]
         if self._humidity_sensor:
             entities_to_track.append(self._humidity_sensor)
@@ -526,6 +589,11 @@ class ClimateComfortEntity(ClimateEntity):
     # state changes as "ours" and not manual overrides.
     _OWN_CHANGE_WINDOW: float = 5.0  # seconds
 
+    def _entity_unavailable(self, entity_id: str) -> bool:
+        """True when we have no trustworthy reading for this entity."""
+        state = self.hass.states.get(entity_id)
+        return state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+
     def _device_is_on(self, entity_id: str) -> bool:
         """Read the actual current on/off state of a controlled entity."""
         state = self.hass.states.get(entity_id)
@@ -569,8 +637,21 @@ class ClimateComfortEntity(ClimateEntity):
             # state, no holds triggered.  For climate entities that appear as
             # multiple stages (cool/fan_only/dry), do not mark every stage active
             # just because the entity is not off; match the actual HVAC mode.
+            #
+            # Only sync entities that have actually loaded. This entity is
+            # routinely added before the integrations it controls, and a missing
+            # entity reads as "off" — so syncing it here would record every
+            # running device as inactive, and the moment it appeared we would call
+            # that a manual override and suspend control for hours.
             for device in self._devices:
+                if self._entity_unavailable(device.entity_id):
+                    continue
                 device.is_active = self._device_matches_actual(device)
+                self._synced_entities.add(device.entity_id)
+            # Keep re-syncing until Home Assistant has finished starting; stragglers
+            # after that are handled per entity below.
+            if not self.hass.is_running:
+                return
             self._initial_sync_done = True
             return
 
@@ -585,6 +666,23 @@ class ClimateComfortEntity(ClimateEntity):
             if eid in checked or self._is_in_manual_hold(eid):
                 continue
             checked.add(eid)
+
+            if self._entity_unavailable(eid):
+                # Offline is not the same as switched off. Forget any mismatch in
+                # progress and drop the entity from the synced set, so that when it
+                # returns we re-read it instead of blaming the user for the outage.
+                self._synced_entities.discard(eid)
+                self._manual_mismatch_seen.pop(eid, None)
+                continue
+
+            if eid not in self._synced_entities:
+                # First trustworthy reading — it loaded late, or just came back.
+                # Adopt what the hardware says rather than calling it an override.
+                for stage in self._devices:
+                    if stage.entity_id == eid:
+                        stage.is_active = self._device_matches_actual(stage)
+                self._synced_entities.add(eid)
+                continue
 
             expected_on_by_entity = any(
                 d.is_active for d in self._devices if d.entity_id == eid
