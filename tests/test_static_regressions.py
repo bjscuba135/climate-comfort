@@ -356,3 +356,69 @@ def test_repository_package_installs_as_comfort_climate_for_existing_config_entr
 
     for platform in ["binary_sensor", "button", "climate", "number", "select", "switch"]:
         assert (REPOSITORY_ROOT / f"{platform}.py").exists()
+
+
+def test_secondary_climate_attributes_default_to_unmanaged():
+    assert 'SECONDARY_UNSET = "__unset__"' in CONST
+    assert 'CONF_DEVICE_FAN_MODE = "fan_mode"' in CONST
+    assert 'CONF_DEVICE_SWING_MODE = "swing_mode"' in CONST
+
+    # The sentinel, an empty string and an absent key must all mean "not managed",
+    # so enabling this feature never starts forcing a fan speed on existing rooms.
+    normaliser = _method_body(CLIMATE, "def _secondary(raw)", "class _Device")
+    assert "if raw is None" in normaliser
+    assert "return None" in normaliser
+    assert "if not value or value == SECONDARY_UNSET" in normaliser
+
+    device_init = _method_body(CLIMATE, "def __init__(self, data: dict) -> None:", "    @property\n    def is_climate")
+    assert "self.fan_mode: str | None = _secondary(data.get(CONF_DEVICE_FAN_MODE))" in device_init
+    assert "self.swing_mode: str | None = _secondary(data.get(CONF_DEVICE_SWING_MODE))" in device_init
+
+
+def test_secondary_climate_attributes_are_non_fatal_and_outside_activation_rollback():
+    body = _method_body(CLIMATE, "async def _apply_secondary_settings", "async def _activate_device")
+    assert '"set_fan_mode"' in body
+    assert '"set_swing_mode"' in body
+    # Unset attributes are skipped rather than sent as a literal sentinel.
+    assert "if not value" in body and "continue" in body
+    # Must swallow its own errors: by this point set_hvac_mode has already
+    # succeeded and the hardware is running. Marking the device inactive here
+    # would make the controller retry activation on every evaluation, forever.
+    assert "except Exception" in body
+    assert "_LOGGER.warning" in body
+    # Never assigns is_active (the docstring discusses it; the code must not touch it).
+    assert "is_active =" not in body
+
+    activate = _method_body(CLIMATE, "async def _activate_device", "def _same_climate_has_active_temperature_stage")
+    assert "await self._apply_secondary_settings(device)" in activate
+    # Ordering: secondary attributes are applied only after the primary mode.
+    assert activate.index('"set_hvac_mode"') < activate.index("_apply_secondary_settings")
+    # And still before the activation is committed, so a genuine mode failure
+    # continues to roll back.
+    assert activate.index("_apply_secondary_settings") < activate.index("device.is_active = True")
+
+
+def test_secondary_climate_attribute_fields_are_offered_only_when_entity_supports_them():
+    helper = _method_body(CONFIG_FLOW, "def _secondary_options_for_entity", "# ── Config flow")
+    # No fallback list here, unlike hvac_modes: guessing would offer values the
+    # device is certain to reject. Absent attribute means omit the field entirely.
+    assert "_FALLBACK_CLIMATE_MODES" not in helper
+    assert "if not state" in helper
+    assert "if not values" in helper
+    assert helper.count("return None") >= 3
+    # "Leave unchanged" must be the first option, so a capable device can still
+    # be left unmanaged.
+    assert "SECONDARY_UNSET, label=\"Leave unchanged\"" in helper
+
+    step = _method_body(CONFIG_FLOW, "async def async_step_device_climate_mode", "# ── Remove device")
+    assert '(CONF_DEVICE_FAN_MODE, "fan_modes", "fan speed")' in step
+    assert '(CONF_DEVICE_SWING_MODE, "swing_modes", "fan direction")' in step
+    assert "if options is None" in step and "continue" in step
+    assert "vol.Optional(conf_key, default=existing.get(conf_key, SECONDARY_UNSET))" in step
+
+    for source in (STRINGS, TRANSLATIONS):
+        fields = source["options"]["step"]["device_climate_mode"]
+        assert "fan_mode" in fields["data"]
+        assert "swing_mode" in fields["data"]
+        assert "fan_mode" in fields["data_description"]
+        assert "swing_mode" in fields["data_description"]
