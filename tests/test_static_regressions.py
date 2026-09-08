@@ -3,17 +3,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = ROOT / "custom_components/climate_comfort"
-INIT = (REPOSITORY_ROOT / "__init__.py").read_text()
-CLIMATE = (REPOSITORY_ROOT / "climate.py").read_text()
-SWITCH = (REPOSITORY_ROOT / "switch.py").read_text()
-BINARY_SENSOR = (REPOSITORY_ROOT / "binary_sensor.py").read_text()
-CONFIG_FLOW = (REPOSITORY_ROOT / "config_flow.py").read_text()
-CONST = (REPOSITORY_ROOT / "const.py").read_text()
-SELECT = (REPOSITORY_ROOT / "select.py").read_text()
-README = (ROOT / "README.md").read_text()
-STRINGS = json.loads((REPOSITORY_ROOT / "strings.json").read_text())
-TRANSLATIONS = json.loads((REPOSITORY_ROOT / "translations/en.json").read_text())
-MANIFEST = json.loads((REPOSITORY_ROOT / "manifest.json").read_text())
+INIT = (REPOSITORY_ROOT / "__init__.py").read_text(encoding="utf-8")
+CLIMATE = (REPOSITORY_ROOT / "climate.py").read_text(encoding="utf-8")
+SWITCH = (REPOSITORY_ROOT / "switch.py").read_text(encoding="utf-8")
+BINARY_SENSOR = (REPOSITORY_ROOT / "binary_sensor.py").read_text(encoding="utf-8")
+CONFIG_FLOW = (REPOSITORY_ROOT / "config_flow.py").read_text(encoding="utf-8")
+CONST = (REPOSITORY_ROOT / "const.py").read_text(encoding="utf-8")
+SELECT = (REPOSITORY_ROOT / "select.py").read_text(encoding="utf-8")
+README = (ROOT / "README.md").read_text(encoding="utf-8")
+STRINGS = json.loads((REPOSITORY_ROOT / "strings.json").read_text(encoding="utf-8"))
+TRANSLATIONS = json.loads((REPOSITORY_ROOT / "translations/en.json").read_text(encoding="utf-8"))
+MANIFEST = json.loads((REPOSITORY_ROOT / "manifest.json").read_text(encoding="utf-8"))
 
 
 def _method_body(source: str, marker: str, next_marker: str) -> str:
@@ -98,8 +98,8 @@ def test_global_profile_settings_are_required_and_one_decimal_place():
 def test_preset_switching_and_number_refresh_use_cached_global_config_when_hass_is_unavailable():
     preset_body = _method_body(CLIMATE, "async def async_set_preset_mode", "async def async_set_temperature")
     state_change_body = _method_body(CLIMATE, "def _handle_state_change", "# How long after our last service call")
-    number_setup_body = _method_body((REPOSITORY_ROOT / "number.py").read_text(), "async def async_setup_entry", "class RoomSettingNumber")
-    number_global_body = _method_body((REPOSITORY_ROOT / "number.py").read_text(), "def _global_config", "def _refresh_value")
+    number_setup_body = _method_body((REPOSITORY_ROOT / "number.py").read_text(encoding="utf-8"), "async def async_setup_entry", "class RoomSettingNumber")
+    number_global_body = _method_body((REPOSITORY_ROOT / "number.py").read_text(encoding="utf-8"), "def _global_config", "def _refresh_value")
     switch_refresh_body = _method_body(SWITCH, "def _refresh_numbers", "# ── Dehumidification")
     assert "def _restore_configured_comfort_zone" in CLIMATE
     assert "self._global_comfort_zone" in CLIMATE
@@ -195,7 +195,7 @@ def test_room_aggressiveness_page_persists_room_profile_settings_and_climate_use
 
 
 def test_room_profile_select_allows_runtime_aggressiveness_override_independent_of_mode():
-    init_text = (REPOSITORY_ROOT / "__init__.py").read_text()
+    init_text = (REPOSITORY_ROOT / "__init__.py").read_text(encoding="utf-8")
     assert '"select"' in init_text.split("PLATFORMS =", 1)[1].split("]", 1)[0]
     assert "class RoomAggressivenessSelect" in SELECT
     assert "PROFILE_OVERRIDE_MODE_DEFAULT" in SELECT
@@ -315,7 +315,7 @@ def test_emergency_enabled_device_flag_is_collected_and_used_for_safety_limits()
 def test_hacs_metadata_declares_single_installable_comfort_climate_integration():
     hacs_path = ROOT / "hacs.json"
     assert hacs_path.exists()
-    hacs = json.loads(hacs_path.read_text())
+    hacs = json.loads(hacs_path.read_text(encoding="utf-8"))
     assert hacs["name"] == "Climate Comfort"
     assert "domains" not in hacs
     assert MANIFEST["domain"] == "comfort_climate"
