@@ -160,11 +160,15 @@
         "title": "Climate Entity \u2014 Mode & Target",
         "data": {
           "hvac_mode_on": "HVAC mode when active",
-          "target_temp_offset": "Target overshoot (\u00b0C)"
+          "target_temp_offset": "Target overshoot (°C)",
+          "fan_mode": "Fan speed when active",
+          "swing_mode": "Fan direction when active"
         },
         "data_description": {
-          "hvac_mode_on": "The mode set on this climate entity when the controller activates it. The list is populated from the device's own supported modes.",
-          "target_temp_offset": "Optional offset to ensure the device actually runs rather than sitting idle because its previous setpoint was already satisfied. Heating devices target setpoint + offset. Cooling devices target setpoint \u2212 offset. Set to 0 to target exactly the room setpoint."
+          "hvac_mode_on": "**HVAC mode:** the mode set on this climate entity when the controller activates it. The list is populated from the device's own supported modes.",
+          "target_temp_offset": "**Target overshoot:** an optional offset to ensure the device actually runs rather than sitting idle because its previous setpoint was already satisfied. **Heating devices** target *setpoint + offset* °C. **Cooling devices** target *setpoint − offset* °C. Set to 0 to target exactly the room setpoint.",
+          "fan_mode": "**Fan speed:** optional. Applied when this device is switched on, after the HVAC mode above. The list comes from the device's own supported fan modes. Choose *Leave unchanged* to let the device keep whatever speed it was last set to.",
+          "swing_mode": "**Fan direction:** optional. Applied when this device is switched on, after the HVAC mode above. The list comes from the device's own supported swing modes. Choose *Leave unchanged* to let the device keep its current direction."
         }
       },
       "remove_device": {

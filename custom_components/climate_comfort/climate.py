@@ -48,8 +48,10 @@ from .const import (
     CONF_DEVICE_HUMIDITY_HYSTERESIS,
     CONF_DEVICE_HUMIDITY_THRESHOLD,
     CONF_DEVICE_HVAC_MODE_ON,
+    CONF_DEVICE_FAN_MODE,
     CONF_DEVICE_LABEL,
     CONF_DEVICE_ROLE,
+    CONF_DEVICE_SWING_MODE,
     CONF_DEVICE_TARGET_TEMP_OFFSET,
     CONF_DEVICES,
     CONF_ENTRY_TYPE,
@@ -133,6 +135,7 @@ from .const import (
     ROLE_COOLING,
     ROLE_DEHUMIDIFY,
     ROLE_HEATING,
+    SECONDARY_UNSET,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -243,6 +246,19 @@ async def async_setup_entry(
     async_add_entities([entity])
 
 
+def _secondary(raw) -> str | None:
+    """Normalise an optional secondary-attribute config value.
+
+    Absent, empty, or the SECONDARY_UNSET sentinel all mean "not managed".
+    """
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    if not value or value == SECONDARY_UNSET:
+        return None
+    return value
+
+
 class _Device:
     """Runtime wrapper for one controlled device stage."""
 
@@ -270,6 +286,12 @@ class _Device:
         # Use negative values for cooling (e.g. -3), positive for heating (e.g. +3).
         raw_offset = data.get(CONF_DEVICE_TARGET_TEMP_OFFSET)
         self.target_temp_offset: float | None = float(raw_offset) if raw_offset is not None else None
+
+        # Optional secondary climate attributes, applied on activation alongside
+        # hvac_mode. None/SECONDARY_UNSET means "not managed" — leave the device on
+        # whatever it was, rather than forcing a value we were never given.
+        self.fan_mode: str | None = _secondary(data.get(CONF_DEVICE_FAN_MODE))
+        self.swing_mode: str | None = _secondary(data.get(CONF_DEVICE_SWING_MODE))
 
         # Humidity / dehumidifier fields
         self.humidity_threshold: float = float(data.get(CONF_DEVICE_HUMIDITY_THRESHOLD, 65.0))
@@ -1052,6 +1074,36 @@ class ClimateComfortEntity(ClimateEntity):
         """Record that we just issued a service call for this entity."""
         self._last_integration_touch[entity_id] = time.monotonic()
 
+    async def _apply_secondary_settings(self, device: _Device) -> None:
+        """Apply optional fan speed / swing direction after the primary mode is set.
+
+        Deliberately NON-FATAL, and deliberately not inside the caller's rollback.
+        By the time this runs, set_hvac_mode (and any set_temperature) has already
+        succeeded — the device IS heating or cooling. If a fan-direction call then
+        fails because the device rejects that value, the right outcome is a warning,
+        not marking the device inactive: that would roll `is_active` back to False
+        while the hardware is running, and the next evaluation would activate it
+        again, forever. Comfort control must not hinge on a swing setting.
+        """
+        for attr, value, service in (
+            ("fan mode", device.fan_mode, "set_fan_mode"),
+            ("swing mode", device.swing_mode, "set_swing_mode"),
+        ):
+            if not value:
+                continue  # not managed for this device
+            try:
+                self._mark_integration_touch(device.entity_id)
+                await self.hass.services.async_call(
+                    "climate", service,
+                    {"entity_id": device.entity_id, service.replace("set_", ""): value},
+                    blocking=True,
+                )
+            except Exception as err:
+                _LOGGER.warning(
+                    "climate_comfort: '%s' (%s) is active, but setting %s to '%s' failed: %s",
+                    device.label, device.entity_id, attr, value, err,
+                )
+
     async def _activate_device(self, device: _Device) -> None:
         _LOGGER.info("climate_comfort: activating '%s' (%s)", device.label, device.entity_id)
         self._mark_integration_touch(device.entity_id)
@@ -1078,6 +1130,7 @@ class ClimateComfortEntity(ClimateEntity):
                         {"entity_id": device.entity_id, "temperature": round(target, 1)},
                         blocking=True,
                     )
+                await self._apply_secondary_settings(device)
             else:
                 await self.hass.services.async_call(
                     "homeassistant", "turn_on",

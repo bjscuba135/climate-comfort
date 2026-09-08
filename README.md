@@ -19,6 +19,7 @@ A custom Home Assistant integration that turns any collection of switches, fans,
   - [Device Roles](#device-roles)
   - [Escalation Stages](#escalation-stages)
   - [Target Temp Offset](#target-temp-offset)
+  - [Fan Speed and Direction](#fan-speed-and-direction)
   - [Manual Hold Detection](#manual-hold-detection)
   - [House and Floor Mode](#house-and-floor-mode)
 - [Entities Reference](#entities-reference)
@@ -53,6 +54,7 @@ Climate Comfort creates a **virtual thermostat** for each room. You tell it whic
 - **Global defaults** — share preset temperatures and comfort-zone width across all rooms; override per-room at any time
 - **House and floor mode selectors** — a single entity change cascades the active preset to every room, or just the rooms on one floor
 - **Live number entities** — edit preset temperatures and comfort zone directly from the device page without opening the options flow
+- **Fan speed and direction** — optionally set a climate device's fan speed and swing direction when it activates, alongside the HVAC mode
 - **Smart HVAC mode** — supported modes are inferred automatically from the device roles configured; no manual selection needed
 
 ---
@@ -267,6 +269,46 @@ When a climate entity is the controlled device, you can set a **target overshoot
 - **Cooling** — device is set to `setpoint − offset` °C
 
 Set to `0` to use the room setpoint directly as the device's target temperature.
+
+---
+
+### Fan Speed and Direction
+
+Setting an HVAC mode is often not the whole story. An air conditioner set to `cool`
+still has a fan speed and, on many units, a louvre direction — and the useful setting
+is frequently "cool, on high, pointed at the ceiling" rather than just "cool".
+
+For any climate device you can therefore set two optional secondary attributes,
+applied when the controller switches the device on, immediately after the HVAC mode:
+
+| Setting | Service called | Typical values |
+|---------|----------------|----------------|
+| **Fan speed when active** | `climate.set_fan_mode` | `auto`, `low`, `medium`, `high`, `quiet`, `turbo` |
+| **Fan direction when active** | `climate.set_swing_mode` | `off`, `vertical`, `horizontal`, `both` |
+
+Three things worth knowing about how these behave:
+
+**They are only offered when your device actually supports them.** The dropdowns are
+populated from the entity's own `fan_modes` and `swing_modes` attributes. A thermostatic
+radiator valve has neither, so neither field appears on its config step — there is no
+free-text box to type a value the device will only reject.
+
+**"Leave unchanged" is the default.** A device that *can* take a fan speed is still not
+managed unless you pick one. Existing rooms are unaffected by this feature until you
+opt in, and a device left on *Leave unchanged* keeps whatever speed it was last set to —
+whether that was you, another automation, or its own remote.
+
+**A failure here will not stop your heating or cooling.** By the time these are applied
+the HVAC mode is already set and the device is running. If the fan-direction call then
+fails — an unsupported value, a device that dropped offline mid-sequence — it is logged
+as a warning and the device stays marked active. The alternative would be worse: rolling
+the device back to inactive while the hardware is running, so the controller tries to
+switch it on again on every evaluation, indefinitely. Comfort control does not hinge on
+a louvre.
+
+> **If the fields do not appear:** the entity was probably unavailable when you opened
+> the form, so it had no attributes to read. Reload the integration and edit the device
+> again.
 
 ---
 

@@ -54,6 +54,14 @@ CONF_DEVICE_EMERGENCY_ENABLED = "emergency_enabled"
 # Negative for cooling (e.g. -3 → set AC to setpoint-3°C so it actually works),
 # positive for heating (e.g. +3 → set thermostat to setpoint+3°C).
 CONF_DEVICE_TARGET_TEMP_OFFSET = "target_temp_offset"
+# Optional secondary climate attributes applied on activation, alongside hvac_mode.
+# Only offered when the target entity actually advertises fan_modes / swing_modes,
+# and only applied when set — UNSET means "leave whatever the device is on alone",
+# so the integration never starts forcing a fan speed it was not asked to manage.
+CONF_DEVICE_FAN_MODE = "fan_mode"
+CONF_DEVICE_SWING_MODE = "swing_mode"
+# Sentinel for the "don't manage this" choice in the config flow dropdowns.
+SECONDARY_UNSET = "__unset__"
 # Dehumidifier-specific
 CONF_DEVICE_HUMIDITY_THRESHOLD = "humidity_threshold"
 CONF_DEVICE_HUMIDITY_HYSTERESIS = "humidity_hysteresis"

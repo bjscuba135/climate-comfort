@@ -17,7 +17,9 @@ from .const import (
     CONF_DEVICE_ENTITY,
     CONF_DEVICE_HUMIDITY_HYSTERESIS,
     CONF_DEVICE_HUMIDITY_THRESHOLD,
+    CONF_DEVICE_FAN_MODE,
     CONF_DEVICE_HVAC_MODE_ON,
+    CONF_DEVICE_SWING_MODE,
     CONF_DEVICE_LABEL,
     CONF_DEVICE_ROLE,
     CONF_DEVICE_TARGET_TEMP_OFFSET,
@@ -103,6 +105,7 @@ from .const import (
     ROLE_DEHUMIDIFY,
     ROLE_HEATING,
     PROFILE_OPTIONS,
+    SECONDARY_UNSET,
 )
 
 # ── Selector helpers ────────────────────────────────────────────────────────
@@ -313,6 +316,36 @@ def _climate_modes_for_entity(hass, entity_id: str) -> list[selector.SelectOptio
             if modes:
                 return [selector.SelectOptionDict(value=m, label=m) for m in modes]
     return [selector.SelectOptionDict(value=m, label=m) for m in _FALLBACK_CLIMATE_MODES]
+
+
+def _secondary_options_for_entity(
+    hass, entity_id: str, attribute: str
+) -> list[selector.SelectOptionDict] | None:
+    """
+    Options for an optional secondary climate attribute (fan_modes / swing_modes),
+    read from the target entity's own state attributes.
+
+    Returns None when the entity does not advertise the attribute at all — the
+    caller then omits the field entirely. There is no point offering a fan speed
+    on a device that has no fan, and no fallback list either: unlike hvac_modes,
+    guessing here would offer values the device is certain to reject.
+
+    The first option is a "leave unchanged" sentinel so a device that CAN take a
+    fan speed can still be left unmanaged. Without it, adding this feature would
+    silently start forcing a fan speed on every activation.
+    """
+    if not entity_id:
+        return None
+    state = hass.states.get(entity_id)
+    if not state:
+        return None
+    values = [v for v in (state.attributes.get(attribute) or []) if v]
+    if not values:
+        return None
+    return [
+        selector.SelectOptionDict(value=SECONDARY_UNSET, label="Leave unchanged"),
+        *[selector.SelectOptionDict(value=v, label=v) for v in values],
+    ]
 
 
 # ── Config flow ─────────────────────────────────────────────────────────────
@@ -881,6 +914,37 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
                 _num(0.0, 15.0, step=0.5, mode=selector.NumberSelectorMode.BOX)
             )
 
+        # Optional secondary attributes, alongside the main mode selection above.
+        # Offered only for what this entity actually advertises, and offered for
+        # every role — fan speed matters just as much on a heat pump in heat mode
+        # or a dry-mode dehumidifier as it does on an AC in cool.
+        secondary_offered: list[str] = []
+        for conf_key, attribute, label in (
+            (CONF_DEVICE_FAN_MODE, "fan_modes", "fan speed"),
+            (CONF_DEVICE_SWING_MODE, "swing_modes", "fan direction"),
+        ):
+            options = _secondary_options_for_entity(self.hass, entity_id, attribute)
+            if options is None:
+                continue
+            secondary_offered.append(label)
+            schema_fields[
+                vol.Optional(conf_key, default=existing.get(conf_key, SECONDARY_UNSET))
+            ] = selector.SelectSelector(selector.SelectSelectorConfig(options=options))
+
+        if secondary_offered:
+            secondary_help = (
+                f"This device also supports {' and '.join(secondary_offered)}. "
+                "These are applied when the device is switched on, after the mode above. "
+                "Leave either on 'Leave unchanged' to let the device keep whatever it "
+                "was last set to."
+            )
+        else:
+            secondary_help = (
+                "This device reports no adjustable fan speed or direction, so there is "
+                "nothing extra to set. (If it was unavailable when you opened this form, "
+                "reload the integration and edit the device again.)"
+            )
+
         return self.async_show_form(
             step_id="device_climate_mode",
             data_schema=vol.Schema(schema_fields),
@@ -892,6 +956,7 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
                     "E.g. 3 on a cooling device → AC targets setpoint−3°C so it actually runs. "
                     "Set to 0 to use the setpoint directly as the device target."
                 ),
+                "secondary_help": secondary_help,
             },
         )
 
