@@ -59,7 +59,11 @@ CONF_DEVICE_TARGET_TEMP_OFFSET = "target_temp_offset"
 # and only applied when set — UNSET means "leave whatever the device is on alone",
 # so the integration never starts forcing a fan speed it was not asked to manage.
 CONF_DEVICE_FAN_MODE = "fan_mode"
+# Vertical and horizontal swing are separate in Home Assistant: swing_modes is
+# vertical, swing_horizontal_modes is horizontal, each with its own feature flag
+# and service. A device may advertise either, both, or neither.
 CONF_DEVICE_SWING_MODE = "swing_mode"
+CONF_DEVICE_SWING_HORIZONTAL_MODE = "swing_horizontal_mode"
 # Sentinel for the "don't manage this" choice in the config flow dropdowns.
 SECONDARY_UNSET = "__unset__"
 # Dehumidifier-specific

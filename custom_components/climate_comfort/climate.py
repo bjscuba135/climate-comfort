@@ -51,6 +51,7 @@ from .const import (
     CONF_DEVICE_FAN_MODE,
     CONF_DEVICE_LABEL,
     CONF_DEVICE_ROLE,
+    CONF_DEVICE_SWING_HORIZONTAL_MODE,
     CONF_DEVICE_SWING_MODE,
     CONF_DEVICE_TARGET_TEMP_OFFSET,
     CONF_DEVICES,
@@ -292,6 +293,9 @@ class _Device:
         # whatever it was, rather than forcing a value we were never given.
         self.fan_mode: str | None = _secondary(data.get(CONF_DEVICE_FAN_MODE))
         self.swing_mode: str | None = _secondary(data.get(CONF_DEVICE_SWING_MODE))
+        self.swing_horizontal_mode: str | None = _secondary(
+            data.get(CONF_DEVICE_SWING_HORIZONTAL_MODE)
+        )
 
         # Humidity / dehumidifier fields
         self.humidity_threshold: float = float(data.get(CONF_DEVICE_HUMIDITY_THRESHOLD, 65.0))
@@ -1075,7 +1079,10 @@ class ClimateComfortEntity(ClimateEntity):
         self._last_integration_touch[entity_id] = time.monotonic()
 
     async def _apply_secondary_settings(self, device: _Device) -> None:
-        """Apply optional fan speed / swing direction after the primary mode is set.
+        """Apply optional fan speed / swing directions after the primary mode is set.
+
+        Vertical and horizontal swing are independent in Home Assistant and are
+        applied as separate service calls; a device may support either or both.
 
         Deliberately NON-FATAL, and deliberately not inside the caller's rollback.
         By the time this runs, set_hvac_mode (and any set_temperature) has already
@@ -1087,7 +1094,12 @@ class ClimateComfortEntity(ClimateEntity):
         """
         for attr, value, service in (
             ("fan mode", device.fan_mode, "set_fan_mode"),
-            ("swing mode", device.swing_mode, "set_swing_mode"),
+            ("vertical swing mode", device.swing_mode, "set_swing_mode"),
+            (
+                "horizontal swing mode",
+                device.swing_horizontal_mode,
+                "set_swing_horizontal_mode",
+            ),
         ):
             if not value:
                 continue  # not managed for this device

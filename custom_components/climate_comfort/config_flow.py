@@ -19,6 +19,7 @@ from .const import (
     CONF_DEVICE_HUMIDITY_THRESHOLD,
     CONF_DEVICE_FAN_MODE,
     CONF_DEVICE_HVAC_MODE_ON,
+    CONF_DEVICE_SWING_HORIZONTAL_MODE,
     CONF_DEVICE_SWING_MODE,
     CONF_DEVICE_LABEL,
     CONF_DEVICE_ROLE,
@@ -921,7 +922,12 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
         secondary_offered: list[str] = []
         for conf_key, attribute, label in (
             (CONF_DEVICE_FAN_MODE, "fan_modes", "fan speed"),
-            (CONF_DEVICE_SWING_MODE, "swing_modes", "fan direction"),
+            (CONF_DEVICE_SWING_MODE, "swing_modes", "vertical swing"),
+            (
+                CONF_DEVICE_SWING_HORIZONTAL_MODE,
+                "swing_horizontal_modes",
+                "horizontal swing",
+            ),
         ):
             options = _secondary_options_for_entity(self.hass, entity_id, attribute)
             if options is None:
@@ -932,17 +938,23 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
             ] = selector.SelectSelector(selector.SelectSelectorConfig(options=options))
 
         if secondary_offered:
+            # Oxford-free list: "a", "a and b", "a, b and c" — three are possible
+            # now that vertical and horizontal swing are separate.
+            if len(secondary_offered) == 1:
+                offered = secondary_offered[0]
+            else:
+                offered = f"{', '.join(secondary_offered[:-1])} and {secondary_offered[-1]}"
             secondary_help = (
-                f"This device also supports {' and '.join(secondary_offered)}. "
+                f"This device also supports {offered}. "
                 "These are applied when the device is switched on, after the mode above. "
-                "Leave either on 'Leave unchanged' to let the device keep whatever it "
-                "was last set to."
+                "Leave any of them on 'Leave unchanged' to let the device keep whatever "
+                "it was last set to."
             )
         else:
             secondary_help = (
-                "This device reports no adjustable fan speed or direction, so there is "
-                "nothing extra to set. (If it was unavailable when you opened this form, "
-                "reload the integration and edit the device again.)"
+                "This device reports no adjustable fan speed or swing direction, so "
+                "there is nothing extra to set. (If it was unavailable when you opened "
+                "this form, reload the integration and edit the device again.)"
             )
 
         return self.async_show_form(

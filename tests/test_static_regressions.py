@@ -362,6 +362,7 @@ def test_secondary_climate_attributes_default_to_unmanaged():
     assert 'SECONDARY_UNSET = "__unset__"' in CONST
     assert 'CONF_DEVICE_FAN_MODE = "fan_mode"' in CONST
     assert 'CONF_DEVICE_SWING_MODE = "swing_mode"' in CONST
+    assert 'CONF_DEVICE_SWING_HORIZONTAL_MODE = "swing_horizontal_mode"' in CONST
 
     # The sentinel, an empty string and an absent key must all mean "not managed",
     # so enabling this feature never starts forcing a fan speed on existing rooms.
@@ -373,12 +374,15 @@ def test_secondary_climate_attributes_default_to_unmanaged():
     device_init = _method_body(CLIMATE, "def __init__(self, data: dict) -> None:", "    @property\n    def is_climate")
     assert "self.fan_mode: str | None = _secondary(data.get(CONF_DEVICE_FAN_MODE))" in device_init
     assert "self.swing_mode: str | None = _secondary(data.get(CONF_DEVICE_SWING_MODE))" in device_init
+    assert "CONF_DEVICE_SWING_HORIZONTAL_MODE" in device_init
 
 
 def test_secondary_climate_attributes_are_non_fatal_and_outside_activation_rollback():
     body = _method_body(CLIMATE, "async def _apply_secondary_settings", "async def _activate_device")
     assert '"set_fan_mode"' in body
     assert '"set_swing_mode"' in body
+    # Horizontal swing is a separate HA service, not a value of set_swing_mode.
+    assert '"set_swing_horizontal_mode"' in body
     # Unset attributes are skipped rather than sent as a literal sentinel.
     assert "if not value" in body and "continue" in body
     # Must swallow its own errors: by this point set_hvac_mode has already
@@ -412,7 +416,9 @@ def test_secondary_climate_attribute_fields_are_offered_only_when_entity_support
 
     step = _method_body(CONFIG_FLOW, "async def async_step_device_climate_mode", "# ── Remove device")
     assert '(CONF_DEVICE_FAN_MODE, "fan_modes", "fan speed")' in step
-    assert '(CONF_DEVICE_SWING_MODE, "swing_modes", "fan direction")' in step
+    assert '(CONF_DEVICE_SWING_MODE, "swing_modes", "vertical swing")' in step
+    assert 'CONF_DEVICE_SWING_HORIZONTAL_MODE,' in step
+    assert '"swing_horizontal_modes",' in step
     assert "if options is None" in step and "continue" in step
     assert "vol.Optional(conf_key, default=existing.get(conf_key, SECONDARY_UNSET))" in step
 
@@ -420,5 +426,10 @@ def test_secondary_climate_attribute_fields_are_offered_only_when_entity_support
         fields = source["options"]["step"]["device_climate_mode"]
         assert "fan_mode" in fields["data"]
         assert "swing_mode" in fields["data"]
+        assert "swing_horizontal_mode" in fields["data"]
+        # Labels must distinguish the two axes: "Fan direction" is ambiguous.
+        assert fields["data"]["swing_mode"].startswith("Vertical swing direction")
+        assert fields["data"]["swing_horizontal_mode"].startswith("Horizontal swing direction")
         assert "fan_mode" in fields["data_description"]
         assert "swing_mode" in fields["data_description"]
+        assert "swing_horizontal_mode" in fields["data_description"]
