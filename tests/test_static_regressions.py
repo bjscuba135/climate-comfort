@@ -490,3 +490,26 @@ def test_unavailable_devices_are_never_treated_as_manual_overrides():
     # Both guards must run before any hold can be triggered.
     assert guard.index("if self._entity_unavailable(eid)") < guard.index("_trigger_manual_hold")
     assert guard.index("if eid not in self._synced_entities") < guard.index("_trigger_manual_hold")
+
+
+def test_minimum_ha_version_covers_the_apis_actually_called():
+    # swing_horizontal_mode landed in Home Assistant 2024.12. Declaring an older
+    # floor advertises support for releases that lack an API we call.
+    hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
+    minimum = MANIFEST["min_homeassistant_version"]
+    assert minimum == "2024.12.0"
+    # The two files are read by different tools; drift between them is silent.
+    assert hacs["homeassistant"] == minimum
+    assert "set_swing_horizontal_mode" in CLIMATE
+
+
+def test_card_suggestion_is_narrow_enough_not_to_spam_the_picker():
+    card = (ROOT / "frontend/climate-comfort-card.js").read_text(encoding="utf-8")
+    assert "getEntitySuggestion:" in card
+    body = card.split("getEntitySuggestion:", 1)[1].split("});", 1)[0]
+    # Must reject anything that is not one of our own thermostats: a plain climate
+    # entity would render an empty card, and suggesting it everywhere is noise.
+    assert "!== 'climate'" in body
+    assert "comfort_zone" in body and "effective_setpoint" in body
+    assert body.count("return null") >= 2
+    assert "type: 'custom:climate-comfort-card'" in body

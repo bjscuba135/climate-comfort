@@ -1006,4 +1006,23 @@ window.customCards.push({
   type: 'climate-comfort-card',
   name: 'Climate Comfort Card',
   description: 'Interactive comfort-band card for Climate Comfort entities with trigger stages, aggressiveness, and humidity markers.',
+  // Card picker suggestions, opt-in from Home Assistant 2026.6. Older versions
+  // ignore this key, so it is safe to ship unconditionally.
+  //
+  // Deliberately narrow: a plain climate entity is not a Climate Comfort room and
+  // this card would render nothing useful for one. Suggesting it for every
+  // thermostat in the house would just make the picker noisy, so we match on the
+  // attributes only our own thermostat publishes.
+  getEntitySuggestion: (hass, entityId) => {
+    if (entityId.split('.')[0] !== 'climate') {
+      return null;
+    }
+    const attrs = hass?.states?.[entityId]?.attributes;
+    if (!attrs || attrs.comfort_zone === undefined || attrs.effective_setpoint === undefined) {
+      return null;
+    }
+    return {
+      config: { type: 'custom:climate-comfort-card', entity: entityId },
+    };
+  },
 });
