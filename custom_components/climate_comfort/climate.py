@@ -1034,6 +1034,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         mode_allows_cooling = self._attr_hvac_mode in (HVACMode.COOL, HVACMode.HEAT_COOL)
         any_heating = False
         any_cooling = False
+        any_dehumidifying = False
 
         # ── Separate devices by type ──────────────────────────────────────
         # Climate entities with the same entity_id form an escalation group.
@@ -1158,11 +1159,16 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             elif current_humidity <= deactivate_at and device.is_active:
                 await self._deactivate_or_release_device(device)
 
+            if device.is_active:
+                any_dehumidifying = True
+
         # ── Update HVAC action ────────────────────────────────────────────
         if any_heating:
             self._attr_hvac_action = HVACAction.HEATING
         elif any_cooling:
             self._attr_hvac_action = HVACAction.COOLING
+        elif any_dehumidifying:
+            self._attr_hvac_action = HVACAction.DRYING
         else:
             self._attr_hvac_action = HVACAction.IDLE
 

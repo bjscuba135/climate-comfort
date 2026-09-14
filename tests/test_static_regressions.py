@@ -241,6 +241,17 @@ def test_dehumidifier_on_same_climate_entity_does_not_turn_off_active_cooling_st
     assert "await self._deactivate_device(device)" in release_body
 
 
+def test_active_dehumidifier_reports_drying_hvac_action():
+    evaluation_body = _method_body(CLIMATE, "async def _evaluate_devices", "# ------------------------------------------------------------------\n    # Device activation helpers")
+    dehumidifier_body = _method_body(evaluation_body, "# ── Evaluate dehumidifier devices", "# ── Update HVAC action")
+    action_body = _method_body(evaluation_body, "# ── Update HVAC action", "self._sync_binary_sensors()")
+    assert "any_dehumidifying = False" in evaluation_body
+    assert "if device.is_active:" in dehumidifier_body
+    assert "any_dehumidifying = True" in dehumidifier_body
+    assert "elif any_dehumidifying:" in action_body
+    assert "HVACAction.DRYING" in action_body
+
+
 def test_climate_entity_uses_home_assistant_hvac_modes_and_set_temperature_mode_arg():
     assert "from homeassistant.exceptions import HomeAssistantError" in CLIMATE
     assert "HVACMode.OFF" in CLIMATE
