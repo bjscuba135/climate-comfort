@@ -252,6 +252,21 @@ def test_active_dehumidifier_reports_drying_hvac_action():
     assert "HVACAction.DRYING" in action_body
 
 
+def test_manual_control_entities_expose_active_hold_and_countdown_for_dashboard_use():
+    button = (REPOSITORY_ROOT / "button.py").read_text(encoding="utf-8")
+    assert "class ManualControlSensor(BinarySensorEntity)" in BINARY_SENSOR
+    assert '"manual_control_sensor"' in BINARY_SENSOR
+    assert "return bool(climate and climate._manual_holds)" in BINARY_SENSOR
+    assert "def manual_control_attributes" in CLIMATE
+    assert '"automated_control_resumes_in"' in CLIMATE
+    assert '"manual_control_summary"' in CLIMATE
+    assert "def extra_state_attributes" in button
+    assert "climate.manual_control_attributes()" in button
+    sync_body = CLIMATE.split("def _sync_binary_sensors", 1)[1]
+    assert '"manual_control_sensor"' in sync_body
+    assert '"reset_manual_control_button"' in sync_body
+
+
 def test_climate_entity_uses_home_assistant_hvac_modes_and_set_temperature_mode_arg():
     assert "from homeassistant.exceptions import HomeAssistantError" in CLIMATE
     assert "HVACMode.OFF" in CLIMATE
