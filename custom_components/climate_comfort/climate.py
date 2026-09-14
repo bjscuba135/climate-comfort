@@ -834,6 +834,28 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
 
         return attrs
 
+    def manual_control_attributes(self) -> dict[str, Any]:
+        """Return concise metadata for the room-level manual-control UI."""
+        if not self._manual_holds:
+            return {}
+
+        now = dt_util.utcnow()
+        labels = {device.entity_id: device.label for device in self._devices}
+        holds: list[tuple[str, int]] = []
+        for entity_id, hold in self._manual_holds.items():
+            remaining_seconds = (hold["since"] + timedelta(hours=self._hold_hours) - now).total_seconds()
+            if remaining_seconds > 0:
+                holds.append((labels.get(entity_id, entity_id), max(1, int(remaining_seconds / 60))))
+        if not holds:
+            return {}
+
+        next_remaining = min(minutes for _, minutes in holds)
+        return {
+            "manual_hold_devices": [label for label, _ in holds],
+            "automated_control_resumes_in": f"{next_remaining} min",
+            "manual_control_summary": f"Manual control — resumes in {next_remaining} min",
+        }
+
     # ------------------------------------------------------------------
     # ------------------------------------------------------------------
     # Dynamic feature flags and range temperature properties
@@ -1395,3 +1417,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
                 self._entry.data.get(CONF_USE_GLOBAL_PRESETS, False)
             )
             gp_switch.async_write_ha_state()
+        for entity_key in ("manual_control_sensor", "reset_manual_control_button"):
+            entity = entry_data.get(entity_key)
+            if entity and entity.hass is not None:
+                entity.async_write_ha_state()

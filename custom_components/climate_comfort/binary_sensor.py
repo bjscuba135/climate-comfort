@@ -78,9 +78,39 @@ async def async_setup_entry(
         ControlledDeviceSensor(entry, idx, _Device(d))
         for idx, d in enumerate(devices_data)
     ]
-    hass.data[DOMAIN][entry.entry_id]["device_sensors"] = device_sensors
+    manual_control_sensor = ManualControlSensor(entry)
+    entry_data = hass.data[DOMAIN][entry.entry_id]
+    entry_data["device_sensors"] = device_sensors
+    entry_data["manual_control_sensor"] = manual_control_sensor
 
-    async_add_entities(device_sensors)
+    async_add_entities([*device_sensors, manual_control_sensor])
+
+
+class ManualControlSensor(BinarySensorEntity):
+    """Expose whether a room has an active manual-control hold."""
+
+    _attr_should_poll = False
+    _attr_device_class = BinarySensorDeviceClass.RUNNING
+    _attr_has_entity_name = True
+    _attr_name = "Manual Control"
+    _attr_icon = "mdi:hand-back-right"
+
+    def __init__(self, entry: ConfigEntry) -> None:
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_manual_control"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+        )
+
+    @property
+    def is_on(self) -> bool:
+        climate = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {}).get("climate_entity")
+        return bool(climate and climate._manual_holds)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        climate = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {}).get("climate_entity")
+        return climate.manual_control_attributes() if climate else {}
 
 
 class ControlledDeviceSensor(BinarySensorEntity):
