@@ -8,6 +8,7 @@ A custom Home Assistant integration that turns any collection of switches, fans,
 
 - [How it works](#how-it-works)
 - [Features](#features)
+- [Upgrading to 1.3.0](#upgrading-to-130)
 - [Installation](#installation)
 - [Setup](#setup)
   - [Global Defaults (optional)](#global-defaults-optional)
@@ -60,7 +61,43 @@ Climate Comfort creates a **virtual thermostat** for each room. You tell it whic
 
 ---
 
+## Upgrading to 1.3.0
+
+**Requires Home Assistant 2026.11 or newer.** 1.3.0 uses the climate temperature
+properties and entity hooks introduced in that release; the names they replace
+are removed from Home Assistant in 2027.11.
+
+What changes when you update:
+
+- **Stage sensors keep a fixed name.** A sensor is now called *Radiator*, not
+  *Radiator (<19.5 °C)* or *Radiator (Manual)*. The trigger temperature is the
+  `trigger_temperature` attribute, and a manual hold shows as a hand icon and the
+  `manual_override` attribute. Entity IDs and history are kept.
+- **Removing a device no longer scrambles the others.** Each stage has its own
+  permanent ID instead of being identified by its position in the list.
+- **The Comfort Zone is always the room's own value.** Previously a room using
+  global presets silently used the Global Defaults zone and ignored its own.
+  Check each room's *Comfort Zone* number after updating if you had changed it.
+- **Editing a number or the *Using Global Presets* switch no longer reloads the
+  room.** The change is applied live.
+- **Changes to Global Defaults reach every room straight away** rather than at
+  the next restart.
+- **A restart no longer moves the temperature.** In Heat-only or Cool-only mode
+  a manually set temperature shifted by one comfort zone on every restart.
+- **Manual holds and the Dehumidification switch survive a restart.**
+- **A setpoint change reaches a device that is already running.** Its target is
+  updated instead of waiting for the next time it switches on.
+- **Manual changes are noticed when they happen**, not at the next temperature
+  reading, and a failed command is retried within 30 seconds.
+- ***Edit room settings* no longer switches *Using Global Presets* back on.**
+
+---
+
 ## Installation
+
+On Home Assistant 2026.11 and newer, HACS is built in as **Settings →
+Marketplace**; custom repositories are added there with *Add from link*. The
+HACS steps below describe the same process on the older, separate HACS.
 
 ### Manual
 
@@ -331,7 +368,8 @@ Climate Comfort watches the actual state of every controlled device and compares
 
 - Automated control of that device is suspended for the configured hold period
 - A `manual_holds` attribute on the thermostat entity shows which devices are held and how many minutes remain
-- The binary sensor for the held device shows `(Manual)` in its name
+- The binary sensor for the held device shows a hand icon and `manual_override: true`
+- A hold survives a restart and ends when it originally would have
 - The **Reset to Automated Control** button clears all holds immediately and resumes normal operation
 
 Set the hold period to `0` to disable this feature entirely.
@@ -354,9 +392,13 @@ deliberate per-room override is not undone by a restart. The selector is consult
 only when there is nothing to restore, which in practice means the first time a room
 runs after you create it.
 
-> Before v1.3.0 there was no restoration at all: every restart silently reset the
+> Before v1.2.1 there was no restoration at all: every restart silently reset the
 > room to Home / `heat_cool` / 21 °C. On a mild day that is enough to start the
 > heating or the air conditioning within seconds of Home Assistant booting.
+
+A room on a named preset comes back at that preset's current temperature. A
+temperature you set by hand (preset *None*) comes back exactly as you left it,
+along with any comfort band you dragged on the card.
 
 **Devices already running at boot are adopted, not fought.** Climate Comfort is
 routinely loaded before the integrations it controls, so it waits: a controlled
@@ -390,7 +432,7 @@ In the room's settings, set *House / floor mode entity* to either the House Mode
 | Entity | Type | Description |
 |---|---|---|
 | *(Room name)* | `climate` | The main thermostat — shows current temperature, HVAC action, setpoint, preset, and rich diagnostic attributes such as thresholds, effective comfort zone, active profile, point spacing, and any manual holds |
-| *(Device label) (<trigger temp>)* | `binary_sensor` | One per configured device — Running when active, Idle otherwise. Attributes include trigger temperatures and manual override status |
+| *(Device label)* | `binary_sensor` | One per configured device — Running when active, Idle otherwise. Attributes include `trigger_temperature`, the on/off thresholds and manual override status |
 | **Comfort Zone** | `number` | Live-editable deadband half-width |
 | **Sleep / Home / Comfort / Eco Temperature** | `number` | Core mode temperatures shown by default; Away always inherits the configured minimum / maximum safety bounds instead |
 | **Activity Temperature** | `number` | Optional live-editable preset temperature; disabled by default in the entity registry |

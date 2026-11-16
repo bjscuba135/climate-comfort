@@ -28,11 +28,16 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_call_later, async_track_state_change_event
-from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.event import (
+    async_call_later,
+    async_track_state_change_event,
+    async_track_time_interval,
+)
+from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 
 from .const import (
     ATTR_ACTIVE_DEVICES,
+    CONF_DEVICE_ID,
     ATTR_COMFORT_ZONE,
     ATTR_CURRENT_HUMIDITY,
     ATTR_EFFECTIVE_SETPOINT,
@@ -261,10 +266,29 @@ def _secondary(raw) -> str | None:
     return value
 
 
+class _ComfortExtraData(ExtraStoredData):
+    """Manual holds, stored alongside the restored state.
+
+    Holds live only in memory otherwise, so a restart or a reload of the room
+    used to end them silently and hand a device the user had just taken over
+    straight back to automation.
+    """
+
+    def __init__(self, manual_holds: dict[str, str]) -> None:
+        self.manual_holds = manual_holds
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"manual_holds": self.manual_holds}
+
+
 class _Device:
     """Runtime wrapper for one controlled device stage."""
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict, index: int = 0) -> None:
+        # Stable identity for this stage. Older configs have none until the
+        # setup migration assigns one; fall back to the list position, which is
+        # what the unique IDs used to be built from.
+        self.id: str = str(data.get(CONF_DEVICE_ID) or index)
         self.entity_id: str = data[CONF_DEVICE_ENTITY]
         self.label: str = data.get(CONF_DEVICE_LABEL) or self.entity_id
         self.role: str = data[CONF_DEVICE_ROLE]
@@ -330,7 +354,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
     _attr_name = None
     _attr_icon = "mdi:thermostat-auto"
     _attr_should_poll = False
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_min_temp = DEFAULT_MIN_TEMP
     _attr_max_temp = DEFAULT_MAX_TEMP
     _attr_target_temperature_step = DEFAULT_TEMP_STEP
@@ -349,7 +373,6 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
 
         cfg = entry.data
         opts = entry.options
-        g = _get_global_config(hass)
 
         self._temp_sensor: str = cfg[CONF_TEMPERATURE_SENSOR]
         self._humidity_sensor: str | None = cfg.get(CONF_HUMIDITY_SENSOR)
@@ -359,12 +382,95 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         devices_data: list[dict] = opts.get(CONF_DEVICES, [])
         self._attr_hvac_modes = _infer_hvac_modes(devices_data)
 
-        use_global = bool(cfg.get(CONF_USE_GLOBAL_PRESETS, False))
-        self._global_comfort_zone: float = float(g.get(CONF_COMFORT_ZONE, DEFAULT_COMFORT_ZONE))
-        self._local_comfort_zone: float = float(cfg.get(CONF_COMFORT_ZONE, self._global_comfort_zone))
-        self._comfort_zone: float = (
-            self._global_comfort_zone if use_global else self._local_comfort_zone
+        self._attr_preset_mode = MODE_HOME
+        self._load_settings()
+
+        self._devices: list[_Device] = [
+            _Device(d, idx) for idx, d in enumerate(devices_data)
+        ]
+        self._device_entity_ids: set[str] = {d.entity_id for d in self._devices}
+
+        # Tracks which temperature-control stage is currently applied to each
+        # climate entity. A single climate entity may have heating and cooling
+        # stages; resolve the winner per entity before issuing service calls.
+        self._active_climate_stage: dict[str, _Device | None] = {}
+        # Last target temperature we sent to each climate entity, so a setpoint
+        # change while a stage is already running can be pushed to the device
+        # without re-sending an identical value on every evaluation.
+        self._last_target_sent: dict[str, float] = {}
+
+        # Evaluations make blocking service calls, and those calls change device
+        # states, which in turn request another evaluation. Only one runs at a
+        # time; requests arriving meanwhile are folded into a single re-run.
+        self._evaluating: bool = False
+        self._evaluate_again: bool = False
+
+        # Pick the best default: prefer HEAT_COOL, then first non-OFF mode, then OFF.
+        non_off = [m for m in self._attr_hvac_modes if m != HVACMode.OFF]
+        default_mode = (
+            HVACMode.HEAT_COOL if HVACMode.HEAT_COOL in self._attr_hvac_modes
+            else (non_off[0] if non_off else HVACMode.OFF)
         )
+        self._attr_hvac_mode: HVACMode = default_mode
+        self._attr_native_current_temperature: float | None = None
+        self._attr_current_humidity: float | None = None
+        self._attr_hvac_action: HVACAction = HVACAction.IDLE
+        # supported_features is a dynamic property — see below
+
+        # Manual hold tracking -------------------------------------------
+        # entity_id → first monotonic timestamp when a non-own mismatch was seen.
+        # A hold only starts if the same mismatch persists for the confirmation window.
+        self._manual_mismatch_seen: dict[str, float] = {}
+        # entity_id → {"since": datetime, "user_id": str|None}
+        self._manual_holds: dict[str, dict] = {}
+        # entity_id → cancel callback for the timer that ends its hold.
+        self._hold_timers: dict[str, Any] = {}
+        # entity_ids whose real state we have actually observed. Hold detection is
+        # only meaningful for these: an entity we have never seen (still loading at
+        # boot) or one that has gone unavailable must never be judged a manual
+        # override, because we have nothing trustworthy to compare against.
+        self._synced_entities: set[str] = set()
+        # True once the first evaluation has run and is_active flags are in sync.
+        # On the very first evaluation we align is_active with actual device state
+        # rather than treating any divergence as a manual override.
+        self._initial_sync_done: bool = False
+        # Timestamp (monotonic) of the last service call we made per entity.
+        # State changes arriving within _OWN_CHANGE_WINDOW seconds of a call
+        # are treated as our own and don't trigger a manual hold.
+        self._last_integration_touch: dict[str, float] = {}
+
+        # The room's setpoint (midpoint of the comfort band). Kept separate from
+        # the temperature the thermostat card shows, which in Heat or Cool mode
+        # is the activation threshold rather than the midpoint.
+        self._setpoint: float = self._mode_temps[MODE_HOME]
+        self._profile_override: str | None = (
+            hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get("profile_override")
+        )
+
+    def _load_settings(self) -> None:
+        """Read everything tunable from the room entry and Global Defaults.
+
+        Called at construction and again whenever a number or switch entity
+        changes a setting, so those edits apply live without reloading the room.
+        """
+        cfg = self._entry.data
+        g = _get_global_config(self.hass)
+        use_global = bool(cfg.get(CONF_USE_GLOBAL_PRESETS, False))
+
+        # The comfort zone is always the room's own value. "Use global presets"
+        # governs preset temperatures only; the room form and the Comfort Zone
+        # number both edit this value, so it must be the one that is applied.
+        previous_zone = getattr(self, "_local_comfort_zone", None)
+        self._local_comfort_zone: float = float(
+            cfg.get(CONF_COMFORT_ZONE, g.get(CONF_COMFORT_ZONE, DEFAULT_COMFORT_ZONE))
+        )
+        if (
+            previous_zone != self._local_comfort_zone
+            or self._attr_preset_mode != PRESET_NONE
+        ):
+            # Keep a zone the user dragged on the card (preset None) unless the
+            # configured value itself just changed.
+            self._comfort_zone: float = self._local_comfort_zone
 
         def _resolve(key: str, default: float) -> float:
             # When "use global presets" is on, skip local values for preset keys
@@ -399,28 +505,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         mode_source = g or cfg
         self._enabled_modes = _enabled_modes_from_config(mode_source)
         self._attr_preset_modes = [PRESET_NONE, *self._enabled_modes]
-        self._attr_preset_mode = MODE_HOME
 
-        self._devices: list[_Device] = [_Device(d) for d in devices_data]
-
-        # Tracks which temperature-control stage is currently applied to each
-        # climate entity. A single climate entity may have heating and cooling
-        # stages; resolve the winner per entity before issuing service calls.
-        self._active_climate_stage: dict[str, _Device | None] = {}
-
-        # Pick the best default: prefer HEAT_COOL, then first non-OFF mode, then OFF.
-        non_off = [m for m in self._attr_hvac_modes if m != HVACMode.OFF]
-        default_mode = (
-            HVACMode.HEAT_COOL if HVACMode.HEAT_COOL in self._attr_hvac_modes
-            else (non_off[0] if non_off else HVACMode.OFF)
-        )
-        self._attr_hvac_mode: HVACMode = default_mode
-        self._attr_current_temperature: float | None = None
-        self._attr_current_humidity: float | None = None
-        self._attr_hvac_action: HVACAction = HVACAction.IDLE
-        # supported_features is a dynamic property — see below
-
-        # Manual hold tracking -------------------------------------------
         # How many hours to suspend automated control after a manual change.
         # 0 disables the feature.
         self._hold_hours: float = float(
@@ -429,33 +514,60 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         self._manual_hold_confirm_seconds: float = float(
             cfg.get(CONF_MANUAL_HOLD_CONFIRM_SECONDS, DEFAULT_MANUAL_HOLD_CONFIRM_SECONDS)
         )
-        # entity_id → first monotonic timestamp when a non-own mismatch was seen.
-        # A hold only starts if the same mismatch persists for the confirmation window.
-        self._manual_mismatch_seen: dict[str, float] = {}
-        # entity_id → {"since": datetime, "user_id": str|None}
-        self._manual_holds: dict[str, dict] = {}
-        # entity_ids whose real state we have actually observed. Hold detection is
-        # only meaningful for these: an entity we have never seen (still loading at
-        # boot) or one that has gone unavailable must never be judged a manual
-        # override, because we have nothing trustworthy to compare against.
-        self._synced_entities: set[str] = set()
-        # True once the first evaluation has run and is_active flags are in sync.
-        # On the very first evaluation we align is_active with actual device state
-        # rather than treating any divergence as a manual override.
-        self._initial_sync_done: bool = False
-        # Timestamp (monotonic) of the last service call we made per entity.
-        # State changes arriving within _OWN_CHANGE_WINDOW seconds of a call
-        # are treated as our own and don't trigger a manual hold.
-        self._last_integration_touch: dict[str, float] = {}
 
-        self._attr_target_temperature: float = self._mode_temps[MODE_HOME]
-        self._profile_override: str | None = (
-            hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get("profile_override")
-        )
+    async def async_settings_updated(self) -> None:
+        """Apply a setting changed by a number or switch entity, without a reload."""
+        self._load_settings()
+        preset = self._attr_preset_mode
+        if preset != PRESET_NONE and preset in self._mode_temps:
+            self._setpoint = self._mode_temps[preset]
+        await self._evaluate_devices()
+        # Refresh the numbers and switch even when no evaluation could run
+        # (thermostat off, or no temperature reading yet).
+        self._sync_binary_sensors()
+        self.async_write_ha_state()
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+
+    @property
+    def extra_restore_state_data(self) -> ExtraStoredData:
+        return _ComfortExtraData(
+            {
+                eid: hold["since"].isoformat()
+                for eid, hold in self._manual_holds.items()
+            }
+        )
+
+    async def _restore_manual_holds(self) -> None:
+        """Bring back holds that were still running before a restart or reload."""
+        if self._hold_hours <= 0:
+            return
+        extra = await self.async_get_last_extra_data()
+        if extra is None:
+            return
+        stored = extra.as_dict().get("manual_holds") or {}
+        now = dt_util.utcnow()
+        for entity_id, since_raw in stored.items():
+            if entity_id not in self._device_entity_ids:
+                continue  # device no longer part of this room
+            since = dt_util.parse_datetime(str(since_raw))
+            if since is None:
+                continue
+            if since + timedelta(hours=self._hold_hours) <= now:
+                continue  # ran out while Home Assistant was down
+            self._trigger_manual_hold(entity_id, since)
+
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        """Nothing here is keyed on our own entity_id, so a rename needs no work."""
+        super().async_entity_id_changed(old_entity_id)
+
+    async def async_will_remove_from_hass(self) -> None:
+        for cancel in self._hold_timers.values():
+            cancel()
+        self._hold_timers.clear()
 
     async def _restore_previous_state(self) -> None:
         """Reinstate HVAC mode, preset and setpoint from before the restart.
@@ -483,18 +595,36 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         if preset in self._attr_preset_modes:
             self._attr_preset_mode = preset
             if preset in self._mode_temps:
-                self._attr_target_temperature = self._mode_temps[preset]
+                self._setpoint = self._mode_temps[preset]
 
-        # Applied after the preset so a setpoint the user nudged by hand is not
-        # thrown away by the preset's default temperature.
-        temperature = last.attributes.get(ATTR_TEMPERATURE)
-        if temperature is not None:
+        if self._attr_preset_mode != PRESET_NONE:
+            # A named preset always uses its configured temperature, so a change
+            # made in Global Defaults while the room was reloading takes effect.
+            return
+
+        # Preset None means the user set the temperature by hand: restore it.
+        #
+        # This reads our own effective_setpoint attribute, NOT the standard
+        # `temperature` attribute. In Heat or Cool mode `temperature` is the
+        # activation threshold shown on the card, one comfort zone away from the
+        # setpoint, so restoring from it moved the room by a comfort zone on
+        # every restart and every reload.
+        def _restored(attribute: str, low: float, high: float) -> float | None:
             try:
-                restored = float(temperature)
+                value = float(last.attributes.get(attribute))
             except (TypeError, ValueError):
-                restored = None
-            if restored is not None and self._minimum_temperature <= restored <= self._maximum_temperature:
-                self._attr_target_temperature = restored
+                return None
+            return value if math.isfinite(value) and low <= value <= high else None
+
+        setpoint = _restored(
+            ATTR_EFFECTIVE_SETPOINT, self._minimum_temperature, self._maximum_temperature
+        )
+        if setpoint is not None:
+            self._setpoint = setpoint
+        # A range dragged on the card also sets the band width.
+        zone = _restored(ATTR_COMFORT_ZONE, 0.05, 10.0)
+        if zone is not None:
+            self._comfort_zone = zone
 
     def _adopt_house_mode(self) -> None:
         """Adopt the house/floor selector's current preset, if one is wired up.
@@ -510,24 +640,33 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             return
         self._attr_preset_mode = state.state
         if state.state in self._mode_temps:
-            self._attr_target_temperature = self._mode_temps[state.state]
+            self._setpoint = self._mode_temps[state.state]
 
     async def async_added_to_hass(self) -> None:
         await self._restore_previous_state()
+        await self._restore_manual_holds()
 
         entities_to_track = [self._temp_sensor]
         if self._humidity_sensor:
             entities_to_track.append(self._humidity_sensor)
         if self._house_mode_entity:
             entities_to_track.append(self._house_mode_entity)
+        # Controlled devices are watched too, so a manual change is noticed when
+        # it happens rather than at the next temperature reading.
+        entities_to_track.extend(sorted(self._device_entity_ids))
 
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, entities_to_track, self._handle_state_change
             )
         )
-
-
+        # Safety net: confirms manual holds, retries a service call that failed,
+        # and keeps the hold countdown current even if no sensor reports.
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass, self._handle_tick, self._TICK_INTERVAL
+            )
+        )
 
         if state := self.hass.states.get(self._temp_sensor):
             self._apply_temp_state(state)
@@ -542,7 +681,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         entry_data["thresholds"] = {
             "lt": round(lt, 2),
             "ut": round(ut, 2),
-            "setpoint": self._attr_target_temperature,
+            "setpoint": self._setpoint,
             "preset": self._attr_preset_mode,
             "point_spacing": self._profile_point_spacing(),
         }
@@ -578,12 +717,26 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             if preset and preset in self._enabled_modes:
                 self._attr_preset_mode = preset
                 if preset == MODE_AWAY:
-                    self._attr_target_temperature = round((self._minimum_temperature + self._maximum_temperature) / 2, 1)
+                    self._setpoint = round((self._minimum_temperature + self._maximum_temperature) / 2, 1)
                 else:
-                    self._attr_target_temperature = self._mode_temps.get(preset, self._attr_target_temperature)
+                    self._setpoint = self._mode_temps.get(preset, self._setpoint)
                 self._restore_configured_comfort_zone()
                 self.hass.async_create_task(self._evaluate_devices())
                 self.async_write_ha_state()
+
+        elif entity_id in self._device_entity_ids:
+            # Only on/off or mode changes matter here; climate devices report
+            # attribute updates (their own temperature) far more often.
+            old_state = event.data.get("old_state")
+            if old_state is not None and old_state.state == new_state.state:
+                return
+            self.hass.async_create_task(self._evaluate_devices())
+
+    async def _handle_tick(self, _now=None) -> None:
+        await self._evaluate_devices()
+
+    # How often to re-evaluate when nothing else has prompted it.
+    _TICK_INTERVAL = timedelta(seconds=30)
 
     # How long after our last service call to a device we consider subsequent
     # state changes as "ours" and not manual overrides.
@@ -705,19 +858,31 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             else:
                 self._manual_mismatch_seen.pop(eid, None)
 
-    def _trigger_manual_hold(self, entity_id: str) -> None:
-        """Record a manual hold and schedule automatic resume."""
-        self._manual_holds[entity_id] = {"since": dt_util.utcnow(), "user_id": None}
+    def _trigger_manual_hold(self, entity_id: str, since=None) -> None:
+        """Record a manual hold and schedule automatic resume.
+
+        `since` is given when a hold is being restored after a restart, so it
+        ends when it originally would have rather than starting over.
+        """
+        restored = since is not None
+        since = since or dt_util.utcnow()
+        self._manual_holds[entity_id] = {"since": since, "user_id": None}
+        remaining = max(
+            1.0,
+            (since + timedelta(hours=self._hold_hours) - dt_util.utcnow()).total_seconds(),
+        )
         _LOGGER.info(
-            "climate_comfort [%s]: manual override detected on %s — "
-            "automated control suspended for %.1f h",
+            "climate_comfort [%s]: manual override %s on %s — "
+            "automated control suspended for %.0f more min",
             self._entry.data.get("name"),
+            "restored" if restored else "detected",
             entity_id,
-            self._hold_hours,
+            remaining / 60,
         )
 
         @callback
         def _resume(_now=None) -> None:
+            self._hold_timers.pop(entity_id, None)
             self._manual_holds.pop(entity_id, None)
             # Mark as recently touched so _check_manual_changes doesn't
             # immediately re-trigger a hold when it sees the device may still
@@ -732,9 +897,24 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             self.hass.async_create_task(self._evaluate_devices())
             self.async_write_ha_state()
 
-        self.async_on_remove(
-            async_call_later(self.hass, self._hold_hours * 3600, _resume)
-        )
+        if previous := self._hold_timers.pop(entity_id, None):
+            previous()
+        self._hold_timers[entity_id] = async_call_later(self.hass, remaining, _resume)
+
+    async def async_clear_manual_holds(self) -> list[str]:
+        """End every hold now and return the entity_ids that were held."""
+        cleared = list(self._manual_holds)
+        self._manual_holds.clear()
+        for cancel in self._hold_timers.values():
+            cancel()
+        self._hold_timers.clear()
+        # Mark as recently touched so _check_manual_changes doesn't immediately
+        # re-trigger holds when it sees states that still differ from is_active.
+        for entity_id in cleared:
+            self._mark_integration_touch(entity_id)
+        await self._evaluate_devices()
+        self.async_write_ha_state()
+        return cleared
 
     def _is_in_manual_hold(self, entity_id: str) -> bool:
         """Return True if this entity is currently in a manual hold period."""
@@ -754,7 +934,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
                 "turning off all devices and marking unavailable",
                 self._entry.data.get("name"), self._temp_sensor, state.state,
             )
-            self._attr_current_temperature = None
+            self._attr_native_current_temperature = None
             self._attr_available = False
             self.hass.async_create_task(self._turn_off_all())
             return
@@ -764,14 +944,14 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             temperature = float(state.state)
             if not math.isfinite(temperature):
                 raise ValueError("temperature is not finite")
-            self._attr_current_temperature = temperature
+            self._attr_native_current_temperature = temperature
         except (ValueError, TypeError):
             _LOGGER.warning(
                 "climate_comfort [%s]: bad temperature '%s' from %s — "
                 "turning off all devices and marking unavailable",
                 self._entry.data.get("name"), state.state, self._temp_sensor,
             )
-            self._attr_current_temperature = None
+            self._attr_native_current_temperature = None
             self._attr_available = False
             self.hass.async_create_task(self._turn_off_all())
 
@@ -812,7 +992,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             "maximum_temperature": self._maximum_temperature,
             ATTR_LOWER_THRESHOLD: round(lt, 2),
             ATTR_UPPER_THRESHOLD: round(ut, 2),
-            ATTR_EFFECTIVE_SETPOINT: self._attr_target_temperature,
+            ATTR_EFFECTIVE_SETPOINT: self._setpoint,
             ATTR_ACTIVE_DEVICES: [d.entity_id for d in self._devices if d.is_active],
         }
         if self._humidity_sensor:
@@ -852,7 +1032,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         return base | ClimateEntityFeature.TARGET_TEMPERATURE
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """
         Return the single target temperature for Heat or Cool mode.
 
@@ -873,7 +1053,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         return round((lt + ut) / 2, 1)
 
     @property
-    def target_temperature_low(self) -> float | None:
+    def native_target_temperature_low(self) -> float | None:
         """Lower comfort boundary — heating activates below this."""
         if self._attr_hvac_mode != HVACMode.HEAT_COOL:
             return None
@@ -881,7 +1061,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         return lt
 
     @property
-    def target_temperature_high(self) -> float | None:
+    def native_target_temperature_high(self) -> float | None:
         """Upper comfort boundary — cooling activates above this."""
         if self._attr_hvac_mode != HVACMode.HEAT_COOL:
             return None
@@ -908,10 +1088,10 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             raise HomeAssistantError(f"Unsupported preset mode: {preset_mode}")
         self._attr_preset_mode = preset_mode
         if preset_mode == MODE_AWAY:
-            self._attr_target_temperature = round((self._minimum_temperature + self._maximum_temperature) / 2, 1)
+            self._setpoint = round((self._minimum_temperature + self._maximum_temperature) / 2, 1)
             self._restore_configured_comfort_zone()
         elif preset_mode not in (PRESET_NONE,):
-            self._attr_target_temperature = self._mode_temps.get(preset_mode, self._attr_target_temperature)
+            self._setpoint = self._mode_temps.get(preset_mode, self._setpoint)
             # Restore the configured base comfort zone so slider drags don't silently
             # inherit a modified zone.
             self._restore_configured_comfort_zone()
@@ -941,7 +1121,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             lt, ut = float(lt), float(ut)
             if ut <= lt:
                 return  # Guard against invalid ranges
-            self._attr_target_temperature = round((lt + ut) / 2, 1)
+            self._setpoint = round((lt + ut) / 2, 1)
             self._comfort_zone = round((ut - lt) / 2, 2)
             self._attr_preset_mode = PRESET_NONE
             # _comfort_zone is intentionally NOT persisted here — the slider is
@@ -954,12 +1134,12 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             temp = float(temp)
             if self._attr_hvac_mode == HVACMode.HEAT:
                 # User is setting LT directly: new setpoint = LT + comfort_zone
-                self._attr_target_temperature = temp + self._comfort_zone
+                self._setpoint = temp + self._comfort_zone
             elif self._attr_hvac_mode == HVACMode.COOL:
                 # User is setting UT directly: new setpoint = UT - comfort_zone
-                self._attr_target_temperature = temp - self._comfort_zone
+                self._setpoint = temp - self._comfort_zone
             else:
-                self._attr_target_temperature = temp
+                self._setpoint = temp
             self._attr_preset_mode = PRESET_NONE
 
         else:
@@ -974,10 +1154,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
 
     def _restore_configured_comfort_zone(self) -> None:
         """Restore the configured comfort zone after transient slider adjustments."""
-        if bool(self._entry.data.get(CONF_USE_GLOBAL_PRESETS, False)):
-            self._comfort_zone = self._global_comfort_zone
-        else:
-            self._comfort_zone = self._local_comfort_zone
+        self._comfort_zone = self._local_comfort_zone
 
     def _active_profile(self) -> str:
         if self._profile_override:
@@ -1008,21 +1185,49 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
     def _thresholds(self) -> tuple[float, float]:
         if self._attr_preset_mode == MODE_AWAY:
             return self._minimum_temperature, self._maximum_temperature
-        sp = self._attr_target_temperature
+        sp = self._setpoint
         effective_comfort_zone = self._comfort_zone * self._profile_comfort_multiplier()
         return sp - effective_comfort_zone, sp + effective_comfort_zone
 
     async def _evaluate_devices(self) -> None:
+        """Run the control logic, one evaluation at a time.
+
+        A request that arrives while an evaluation is in flight does not start
+        a second one alongside it — two interleaved runs can each decide to
+        switch the same device. It is folded into one re-run instead, which
+        sees whatever changed in the meantime.
+        """
+        if self._evaluating:
+            self._evaluate_again = True
+            return
+        self._evaluating = True
+        try:
+            while True:
+                self._evaluate_again = False
+                await self._evaluate_once()
+                if not self._evaluate_again:
+                    break
+        finally:
+            self._evaluating = False
+        # Callers that were folded into this run have already returned, so the
+        # result has to be published from here.
+        if self.hass is not None and self.entity_id:
+            self.async_write_ha_state()
+
+    async def _evaluate_once(self) -> None:
         # Check for manual changes before doing anything else.
         # Compares expected state (is_active) against actual HA state.
         self._check_manual_changes()
 
         if self._attr_hvac_mode == HVACMode.OFF:
-            await self._turn_off_all()
+            # Evaluations now also run on a timer and on device changes, so only
+            # devices that are actually on are switched off here. Sending "off"
+            # to everything each time would flood a cloud-connected unit.
+            await self._turn_off_all(only_if_on=True)
             self._attr_hvac_action = HVACAction.OFF
             return
 
-        current = self._attr_current_temperature
+        current = self._attr_native_current_temperature
         if current is None:
             return
 
@@ -1125,6 +1330,9 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
                 else:
                     await self._activate_device(winning)
                 self._active_climate_stage[entity_id] = winning
+            elif winning is not None:
+                # Same stage still running: follow a setpoint or preset change.
+                await self._refresh_target_temperature(winning)
 
             if winning is not None:
                 if winning.role == ROLE_HEATING:
@@ -1230,16 +1438,9 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
                     {"entity_id": device.entity_id, "hvac_mode": mode},
                     blocking=True,
                 )
-                if device.target_temp_offset is not None:
-                    ref = self._attr_target_temperature
-                    magnitude = abs(device.target_temp_offset)
-                    target = ref + magnitude if device.role == ROLE_HEATING else ref - magnitude
-                    self._mark_integration_touch(device.entity_id)
-                    await self.hass.services.async_call(
-                        "climate", "set_temperature",
-                        {"entity_id": device.entity_id, "temperature": round(target, 1)},
-                        blocking=True,
-                    )
+                target = self._device_target_temperature(device)
+                if target is not None:
+                    await self._send_target_temperature(device, target)
                 await self._apply_secondary_settings(device)
             else:
                 await self.hass.services.async_call(
@@ -1303,7 +1504,52 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             )
             # is_active stays True — device may still be on, retry next cycle
 
+    def _device_target_temperature(self, device: _Device) -> float | None:
+        """Target to set on a climate device: room setpoint pushed past by its overshoot."""
+        if (
+            not device.is_climate
+            or device.role == ROLE_DEHUMIDIFY
+            or device.target_temp_offset is None
+        ):
+            return None
+        magnitude = abs(device.target_temp_offset)
+        if device.role == ROLE_HEATING:
+            return round(self._setpoint + magnitude, 1)
+        return round(self._setpoint - magnitude, 1)
+
+    async def _send_target_temperature(self, device: _Device, target: float) -> None:
+        self._mark_integration_touch(device.entity_id)
+        await self.hass.services.async_call(
+            "climate", "set_temperature",
+            {"entity_id": device.entity_id, "temperature": target},
+            blocking=True,
+        )
+        self._last_target_sent[device.entity_id] = target
+
+    async def _refresh_target_temperature(self, device: _Device) -> None:
+        """Push a changed setpoint to a stage that is already running.
+
+        The target used to be sent only when a stage switched on, so changing
+        the room temperature while the air conditioner was already cooling left
+        the unit aiming at the old value until it next cycled.
+        """
+        target = self._device_target_temperature(device)
+        if target is None or self._last_target_sent.get(device.entity_id) == target:
+            return
+        try:
+            await self._send_target_temperature(device, target)
+        except Exception as err:
+            # Remember the attempt so a device that rejects the value is not
+            # retried, and logged, on every evaluation until the target changes.
+            self._last_target_sent[device.entity_id] = target
+            _LOGGER.warning(
+                "climate_comfort: '%s' (%s) is active, but updating its target "
+                "to %.1f failed: %s",
+                device.label, device.entity_id, target, err,
+            )
+
     async def _set_climate_off(self, entity_id: str) -> None:
+        self._last_target_sent.pop(entity_id, None)
         self._mark_integration_touch(entity_id)
         await self.hass.services.async_call(
             "climate", "set_hvac_mode",
@@ -1311,10 +1557,13 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             blocking=True,
         )
 
-    async def _turn_off_all(self) -> None:
+    async def _turn_off_all(self, only_if_on: bool = False) -> None:
         turned_off: set[str] = set()
         for device in self._devices:
             if device.entity_id in turned_off:
+                device.is_active = False
+                continue
+            if only_if_on and not self._device_is_on(device.entity_id):
                 device.is_active = False
                 continue
             if device.is_climate:
@@ -1358,13 +1607,13 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         lt, ut = self._thresholds()
         entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
         entry_data["device_states"] = {
-            f"{self._entry.entry_id}_device_{i}": device.is_active
-            for i, device in enumerate(self._devices)
+            f"{self._entry.entry_id}_device_{device.id}": device.is_active
+            for device in self._devices
         }
         entry_data["thresholds"] = {
             "lt": round(lt, 2),
             "ut": round(ut, 2),
-            "setpoint": self._attr_target_temperature,
+            "setpoint": self._setpoint,
             "preset": self._attr_preset_mode,
             "point_spacing": self._profile_point_spacing(),
         }
@@ -1375,8 +1624,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         for sensor in entry_data.get("device_sensors", []):
             if sensor.hass is None:
                 continue
-            # Update name so trigger temp stays current when setpoint changes
-            sensor.update_trigger_name(lt, ut, self._profile_point_spacing())
+            sensor.refresh()
             sensor.async_write_ha_state()
         for sensor in entry_data.get("room_sensors", []):
             if sensor.hass is None:

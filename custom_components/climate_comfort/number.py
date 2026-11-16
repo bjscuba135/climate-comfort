@@ -3,10 +3,11 @@ from __future__ import annotations
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from . import async_update_entry_live
 from .const import (
     CONF_COMFORT_ZONE,
     CONF_ENTRY_TYPE,
@@ -186,38 +187,40 @@ class RoomSettingNumber(NumberEntity):
         v = cfg.get(self._config_key, self._default)
         self._attr_native_value = float(v) if v is not None else self._default
 
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        super().async_entity_id_changed(old_entity_id)
+
     async def async_set_native_value(self, value: float) -> None:
         """
         User changed the value from the device page.
 
-        1. Update the number entity immediately (responsive UI).
-        2. Push the new value into the climate entity's live state.
-        3. Persist to entry.data (survives restart, no full reload needed).
-        4. Automatically disable 'use global presets' so this room now uses
-           its own values.
+        1. Persist to entry.data without reloading the room.
+        2. Have the thermostat re-read its settings and re-evaluate.
+
+        Editing a preset temperature makes the room use its own temperatures
+        instead of Global Defaults. The other presets are copied from Global
+        Defaults at that moment, so they keep the values currently on screen
+        rather than reverting to whatever the room last stored locally.
+
+        The Comfort Zone is always the room's own value and does not affect
+        whether preset temperatures are inherited.
         """
         self._attr_native_value = value
         self.async_write_ha_state()
 
-        entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
+        new_data = {**self._entry.data, self._config_key: value}
+        if not self._is_delta:
+            if bool(self._entry.data.get(CONF_USE_GLOBAL_PRESETS, False)):
+                global_cfg = self._global_config()
+                for key in _PRESET_KEY_MAP:
+                    if key != self._config_key and key in global_cfg:
+                        new_data[key] = global_cfg[key]
+            new_data[CONF_USE_GLOBAL_PRESETS] = False
+        async_update_entry_live(self.hass, self._entry, data=new_data)
 
-        # Update climate entity's in-memory cached values directly
+        entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
         climate = entry_data.get("climate_entity")
         if climate:
-            if self._config_key in _PRESET_KEY_MAP:
-                climate._mode_temps[_PRESET_KEY_MAP[self._config_key]] = value
-            elif self._config_key == CONF_COMFORT_ZONE:
-                climate._comfort_zone = value
-            # Re-evaluate with the new setting
-            self.hass.async_create_task(climate._evaluate_devices())
-            climate.async_write_ha_state()
-
-        # Turn off global preset inheritance when the user sets a room value
-        new_data = {**self._entry.data, self._config_key: value, CONF_USE_GLOBAL_PRESETS: False}
-        self.hass.config_entries.async_update_entry(self._entry, data=new_data)
-
-        # Update the global presets switch to reflect the flag being cleared
-        gp_switch = entry_data.get("global_presets_switch")
-        if gp_switch:
-            gp_switch._attr_is_on = False
-            gp_switch.async_write_ha_state()
+            # Also refreshes the other numbers and the global-presets switch.
+            await climate.async_settings_updated()

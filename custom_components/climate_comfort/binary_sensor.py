@@ -6,7 +6,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -38,34 +38,19 @@ def _device_activation_offset(device: "_Device", point_spacing: float | None) ->
     return abs(device.activation_point) * point_spacing
 
 
-def _device_name_with_trigger(
+def _device_trigger_temperature(
     device: "_Device",
     lt: float | None,
     ut: float | None,
     point_spacing: float | None = None,
-) -> str:
-    """
-    Build the entity name using the actual trigger temperature / humidity so
-    it reads like the dehumidifier entry already does:
-
-      Aircon - Cool (>26.5 °C)  — cooling fires above 26.5 °C
-      Aircon - Heat (<10.5 °C)  — heating fires below 10.5 °C
-      Fan (>23.5 °C)            — fan fires above 23.5 °C (offset 0)
-      Aircon - Dry (>65 %)      — dehumidifier fires above 65 % RH
-
-    Falls back to the plain label when thresholds aren't available yet.
-    """
-    if device.role == ROLE_DEHUMIDIFY:
-        return f"{device.label} (>{device.humidity_threshold:.0f} %)"
-    if lt is None or ut is None:
-        return device.label          # thresholds not ready yet; updated on first sync
+) -> float | None:
+    """Temperature at which a heating or cooling stage switches on."""
+    if device.role == ROLE_DEHUMIDIFY or lt is None or ut is None:
+        return None
     offset = _device_activation_offset(device, point_spacing)
     if device.role == ROLE_COOLING:
-        activate_at = ut + offset
-        return f"{device.label} (>{activate_at:.1f} °C)"
-    # ROLE_HEATING
-    activate_at = lt - offset
-    return f"{device.label} (<{activate_at:.1f} °C)"
+        return round(ut + offset, 2)
+    return round(lt - offset, 2)
 
 
 async def async_setup_entry(
@@ -75,7 +60,7 @@ async def async_setup_entry(
 ) -> None:
     devices_data = entry.options.get(CONF_DEVICES, [])
     device_sensors = [
-        ControlledDeviceSensor(entry, idx, _Device(d))
+        ControlledDeviceSensor(entry, _Device(d, idx))
         for idx, d in enumerate(devices_data)
     ]
     hass.data[DOMAIN][entry.entry_id]["device_sensors"] = device_sensors
@@ -91,6 +76,10 @@ class ControlledDeviceSensor(BinarySensorEntity):
     State: Running (device is currently active) / Idle.
     Attributes include the current computed trigger temperatures so you can
     see at a glance when each device will switch on or off.
+
+    The name is the stage's label and never changes. It used to carry the
+    trigger temperature and a "(Manual)" marker, which renamed the entity every
+    time the setpoint moved; those now live in the attributes and the icon.
     """
 
     _attr_should_poll = False
@@ -98,13 +87,13 @@ class ControlledDeviceSensor(BinarySensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_has_entity_name = True
 
-    def __init__(self, entry: ConfigEntry, index: int, device: _Device) -> None:
+    def __init__(self, entry: ConfigEntry, device: _Device) -> None:
         self._entry = entry
-        self._index = index
         self._device = device
 
-        self._attr_unique_id = f"{entry.entry_id}_device_{index}"
-        # Name starts as plain label; updated to include trigger temp on first sync
+        # Built from the stage's stable id, not its position in the list, so
+        # removing a stage leaves every other sensor on its own history.
+        self._attr_unique_id = f"{entry.entry_id}_device_{device.id}"
         self._attr_name = device.label
         self._attr_icon = _ROLE_ICONS.get(device.role, "mdi:power")
 
@@ -114,33 +103,19 @@ class ControlledDeviceSensor(BinarySensorEntity):
         )
 
     async def async_added_to_hass(self) -> None:
-        """Apply trigger-temp name as soon as hass is available."""
-        thresholds = (
-            self.hass.data.get(DOMAIN, {})
-            .get(self._entry.entry_id, {})
-            .get("thresholds", {})
-        )
-        self.update_trigger_name(
-            thresholds.get("lt"),
-            thresholds.get("ut"),
-            thresholds.get("point_spacing"),
-        )
+        self.refresh()
         self.async_write_ha_state()
 
-    def update_trigger_name(
-        self,
-        lt: float | None,
-        ut: float | None,
-        point_spacing: float | None = None,
-    ) -> None:
-        """Recompute the entity name — shows (Manual) when a hold is active."""
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        super().async_entity_id_changed(old_entity_id)
+
+    def refresh(self) -> None:
+        """Show a hand icon while this stage's device is in a manual hold."""
         entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
-        holds = entry_data.get("manual_holds", {})
-        if self._device.entity_id in holds:
-            self._attr_name = f"{self._device.label} (Manual)"
+        if self._device.entity_id in entry_data.get("manual_holds", {}):
             self._attr_icon = "mdi:hand-back-right"
         else:
-            self._attr_name = _device_name_with_trigger(self._device, lt, ut, point_spacing)
             self._attr_icon = _ROLE_ICONS.get(self._device.role, "mdi:power")
 
     @property
@@ -170,6 +145,9 @@ class ControlledDeviceSensor(BinarySensorEntity):
         if d.role in (ROLE_HEATING, ROLE_COOLING):
             if lt is not None and ut is not None:
                 offset = _device_activation_offset(d, point_spacing)
+                attrs["trigger_temperature"] = _device_trigger_temperature(
+                    d, lt, ut, point_spacing
+                )
                 if d.role == ROLE_HEATING:
                     activate_at = lt - offset
                     deactivate_at = activate_at + d.deactivate_offset
@@ -229,5 +207,3 @@ class ControlledDeviceSensor(BinarySensorEntity):
         attrs["role"] = _ROLE_LABELS.get(d.role, d.role)
 
         return attrs
-
-

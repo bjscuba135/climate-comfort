@@ -4,7 +4,7 @@ import re
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -108,6 +108,10 @@ class HouseModeSelect(SelectEntity, RestoreEntity):
                 self._attr_current_option = restored
         self.async_write_ha_state()
 
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        super().async_entity_id_changed(old_entity_id)
+
     async def async_select_option(self, option: str) -> None:
         """
         Update House Mode and cascade the change to all Floor Mode selects.
@@ -159,6 +163,10 @@ class FloorModeSelect(SelectEntity, RestoreEntity):
                 self._attr_current_option = restored
         self.async_write_ha_state()
 
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        super().async_entity_id_changed(old_entity_id)
+
     async def async_select_option(self, option: str) -> None:
         if option not in self._attr_options:
             return
@@ -195,6 +203,10 @@ class RoomAggressivenessSelect(SelectEntity, RestoreEntity):
             self._attr_current_option = last.state
         self._apply_profile_override()
         self.async_write_ha_state()
+
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        super().async_entity_id_changed(old_entity_id)
 
     async def async_select_option(self, option: str) -> None:
         if option not in PROFILE_OVERRIDE_OPTIONS:

@@ -42,6 +42,10 @@ CONF_HOUSE_MODE_ENTITY = "house_mode_entity"
 CONF_DEVICES = "devices"
 
 # Per-device config
+# Stable identifier for a device stage, assigned once and never reused. Entity
+# unique IDs are built from it, so removing or reordering stages does not move
+# the remaining sensors onto each other's history.
+CONF_DEVICE_ID = "id"
 CONF_DEVICE_ENTITY = "entity_id"
 CONF_DEVICE_LABEL = "label"
 CONF_DEVICE_ROLE = "role"

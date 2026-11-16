@@ -102,7 +102,9 @@ def test_preset_switching_and_number_refresh_use_cached_global_config_when_hass_
     number_global_body = _method_body((REPOSITORY_ROOT / "number.py").read_text(encoding="utf-8"), "def _global_config", "def _refresh_value")
     switch_refresh_body = _method_body(SWITCH, "def _refresh_numbers", "# ── Dehumidification")
     assert "def _restore_configured_comfort_zone" in CLIMATE
-    assert "self._global_comfort_zone" in CLIMATE
+    # The comfort zone is always the room's own value; "use global presets"
+    # governs preset temperatures only.
+    assert "self._global_comfort_zone" not in CLIMATE
     assert "self._local_comfort_zone" in CLIMATE
     assert "_get_global_config(self.hass)" not in preset_body
     assert preset_body.count("self._restore_configured_comfort_zone()") >= 2
@@ -282,7 +284,7 @@ def test_legacy_absolute_activation_offsets_are_not_scaled_by_aggressiveness_spa
     assert "hass.config_entries.async_update_entry" in INIT
     assert "_migrate_legacy_device_offsets(hass, entry)" in INIT
 
-    device_init = _method_body(CLIMATE, "def __init__(self, data: dict) -> None:", "    @property\n    def is_climate")
+    device_init = _method_body(CLIMATE, "def __init__(self, data: dict, index: int = 0) -> None:", "    @property\n    def is_climate")
     assert "self.activation_point = None" in device_init
     assert "old activate_offset was degrees beyond the boundary" in device_init
     assert "def _activation_offset_for_device" in CLIMATE
@@ -290,7 +292,7 @@ def test_legacy_absolute_activation_offsets_are_not_scaled_by_aggressiveness_spa
     assert "if device.activation_point is None" in offset_helper
     assert "return device.activate_offset" in offset_helper
     assert "abs(device.activation_point) * spacing" in offset_helper
-    evaluation_body = _method_body(CLIMATE, "async def _evaluate_devices", "# ── Evaluate dehumidifier devices")
+    evaluation_body = _method_body(CLIMATE, "async def _evaluate_once", "# ── Evaluate dehumidifier devices")
     assert "ut + self._activation_offset_for_device(device, point_spacing)" in evaluation_body
     assert "lt - self._activation_offset_for_device(device, point_spacing)" in evaluation_body
 
@@ -301,7 +303,11 @@ def test_binary_sensor_thresholds_use_same_activation_offset_logic_as_control():
     assert "return device.activate_offset" in BINARY_SENSOR
     assert "abs(device.activation_point) * point_spacing" in BINARY_SENSOR
     assert '"point_spacing": self._profile_point_spacing()' in CLIMATE
-    assert "sensor.update_trigger_name(lt, ut, self._profile_point_spacing())" in CLIMATE
+    # Stage sensors keep a fixed name; the trigger temperature is an attribute.
+    assert "update_trigger_name" not in CLIMATE
+    assert "update_trigger_name" not in BINARY_SENSOR
+    assert 'attrs["trigger_temperature"]' in BINARY_SENSOR
+    assert "sensor.refresh()" in CLIMATE
 
 
 def test_emergency_enabled_device_flag_is_collected_and_used_for_safety_limits():
@@ -371,7 +377,7 @@ def test_secondary_climate_attributes_default_to_unmanaged():
     assert "return None" in normaliser
     assert "if not value or value == SECONDARY_UNSET" in normaliser
 
-    device_init = _method_body(CLIMATE, "def __init__(self, data: dict) -> None:", "    @property\n    def is_climate")
+    device_init = _method_body(CLIMATE, "def __init__(self, data: dict, index: int = 0) -> None:", "    @property\n    def is_climate")
     assert "self.fan_mode: str | None = _secondary(data.get(CONF_DEVICE_FAN_MODE))" in device_init
     assert "self.swing_mode: str | None = _secondary(data.get(CONF_DEVICE_SWING_MODE))" in device_init
     assert "CONF_DEVICE_SWING_HORIZONTAL_MODE" in device_init
@@ -438,7 +444,7 @@ def test_secondary_climate_attribute_fields_are_offered_only_when_entity_support
 def test_mode_preset_and_setpoint_survive_a_restart():
     # Without RestoreEntity every restart reverted the room to Home/HEAT_COOL/21C,
     # which is enough on its own to start heating or cooling seconds after boot.
-    assert "from homeassistant.helpers.restore_state import RestoreEntity" in CLIMATE
+    assert "from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity" in CLIMATE
     assert "class ClimateComfortEntity(ClimateEntity, RestoreEntity):" in CLIMATE
     assert "await self._restore_previous_state()" in CLIMATE
 
@@ -446,9 +452,12 @@ def test_mode_preset_and_setpoint_survive_a_restart():
     assert "await self.async_get_last_state()" in body
     assert "if last.state in self._attr_hvac_modes" in body
     assert 'last.attributes.get("preset_mode")' in body
-    assert "last.attributes.get(ATTR_TEMPERATURE)" in body
+    # The setpoint comes from our own attribute. The standard `temperature`
+    # attribute is the activation threshold in Heat or Cool mode, and restoring
+    # from it moved the room by a comfort zone on every restart.
+    assert "ATTR_TEMPERATURE" not in body
     # A restored setpoint must be sanity-checked, not trusted blindly.
-    assert "self._minimum_temperature <= restored <= self._maximum_temperature" in body
+    assert "ATTR_EFFECTIVE_SETPOINT, self._minimum_temperature, self._maximum_temperature" in body
     # A restored preset wins over the house/floor selector; the selector is only
     # consulted when there is nothing to restore.
     assert "if last is None" in body
@@ -493,11 +502,16 @@ def test_unavailable_devices_are_never_treated_as_manual_overrides():
 
 
 def test_minimum_ha_version_covers_the_apis_actually_called():
-    # swing_horizontal_mode landed in Home Assistant 2024.12. Declaring an older
-    # floor advertises support for releases that lack an API we call.
+    # The native_ temperature properties and async_entity_id_changed both
+    # arrived in Home Assistant 2026.11. Declaring an older floor advertises
+    # support for releases that lack an API we call.
     hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
     minimum = MANIFEST["min_homeassistant_version"]
-    assert minimum == "2024.12.0"
+    assert minimum == "2026.11.0"
+    assert "_attr_native_temperature_unit" in CLIMATE
+    assert "def native_target_temperature(self)" in CLIMATE
+    assert "_attr_temperature_unit" not in CLIMATE
+    assert "_attr_current_temperature" not in CLIMATE
     # The two files are read by different tools; drift between them is silent.
     assert hacs["homeassistant"] == minimum
     assert "set_swing_horizontal_mode" in CLIMATE

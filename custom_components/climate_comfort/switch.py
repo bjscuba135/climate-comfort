@@ -3,10 +3,12 @@ from __future__ import annotations
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
+from . import async_update_entry_live
 from .const import (
     CONF_DEVICE_ROLE,
     CONF_DEVICES,
@@ -101,6 +103,10 @@ class GlobalPresetsSwitch(SwitchEntity):
                 return e.data
         return {}
 
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        super().async_entity_id_changed(old_entity_id)
+
     async def async_turn_on(self, **kwargs) -> None:
         """Enable global presets: copy global values, set flag, grey out numbers."""
         global_cfg = self._global_config()
@@ -120,37 +126,23 @@ class GlobalPresetsSwitch(SwitchEntity):
         ):
             if key in global_cfg:
                 new_data[key] = global_cfg[key]
-        self.hass.config_entries.async_update_entry(self._entry, data=new_data)
-
-        # Push new values into the climate entity's in-memory preset cache
-        entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
-        climate = entry_data.get("climate_entity")
-        if climate:
-            for mode, key in {
-                MODE_AWAY: CONF_MODE_AWAY,
-                MODE_SLEEP: CONF_MODE_SLEEP,
-                MODE_HOME: CONF_MODE_HOME,
-                MODE_WARMUP: CONF_MODE_WARMUP,
-                MODE_COOLDOWN: CONF_MODE_COOLDOWN,
-                MODE_ACTIVITY: CONF_MODE_ACTIVITY,
-                MODE_BOOST: CONF_MODE_BOOST,
-            }.items():
-                if key in global_cfg:
-                    climate._mode_temps[mode] = float(global_cfg[key])
-            self.hass.async_create_task(climate._evaluate_devices())
-            climate.async_write_ha_state()
-
-        self._attr_is_on = True
-        self._refresh_numbers(entry_data)
-        self.async_write_ha_state()
+        await self._apply(new_data, True)
 
     async def async_turn_off(self, **kwargs) -> None:
         """Disable global presets: clear flag, make number entities available."""
-        new_data = {**self._entry.data, CONF_USE_GLOBAL_PRESETS: False}
-        self.hass.config_entries.async_update_entry(self._entry, data=new_data)
-        self._attr_is_on = False
+        await self._apply({**self._entry.data, CONF_USE_GLOBAL_PRESETS: False}, False)
+
+    async def _apply(self, new_data: dict, is_on: bool) -> None:
+        """Save the flag without reloading the room, then apply it live."""
+        async_update_entry_live(self.hass, self._entry, data=new_data)
+        self._attr_is_on = is_on
         entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
-        self._refresh_numbers(entry_data)
+        climate = entry_data.get("climate_entity")
+        if climate:
+            # Re-reads the preset temperatures and refreshes the numbers.
+            await climate.async_settings_updated()
+        else:
+            self._refresh_numbers(entry_data)
         self.async_write_ha_state()
 
     def _refresh_numbers(self, entry_data: dict) -> None:
@@ -163,7 +155,7 @@ class GlobalPresetsSwitch(SwitchEntity):
 
 # ── Dehumidification ──────────────────────────────────────────────────────────
 
-class DehumidifySwitch(SwitchEntity):
+class DehumidifySwitch(SwitchEntity, RestoreEntity):
     """
     Allows the user to suspend dehumidification without removing the device.
 
@@ -185,10 +177,25 @@ class DehumidifySwitch(SwitchEntity):
         self._attr_is_on: bool = True
 
     async def async_added_to_hass(self) -> None:
-        entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
-        self._attr_is_on = entry_data.get(_DATA_DEHUMIDIFY, True)
-        entry_data[_DATA_DEHUMIDIFY] = self._attr_is_on
+        # Restore the last choice: this used to come back On after every
+        # restart or reload, quietly re-enabling a dehumidifier the user had
+        # switched off.
+        last = await self.async_get_last_state()
+        if last is not None and last.state in ("on", "off"):
+            self._attr_is_on = last.state == "on"
+        self._update_shared_state()
+        if not self._attr_is_on:
+            # The thermostat is set up before this switch, so its first
+            # evaluation may already have run with dehumidification enabled.
+            entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
+            climate = entry_data.get("climate_entity")
+            if climate:
+                self.hass.async_create_task(climate._evaluate_devices())
         self.async_write_ha_state()
+
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        super().async_entity_id_changed(old_entity_id)
 
     async def async_turn_on(self, **kwargs) -> None:
         self._attr_is_on = True

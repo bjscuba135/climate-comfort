@@ -49,19 +49,10 @@ class ResetManualControlButton(ButtonEntity):
         if not climate:
             return
 
-        cleared = list(climate._manual_holds.keys())
-        climate._manual_holds.clear()
-
+        cleared = await climate.async_clear_manual_holds()
         if cleared:
             _LOGGER.info(
                 "climate_comfort [%s]: manual holds cleared for %s",
                 self._entry.data.get("name"),
                 cleared,
             )
-            # Mark all cleared entities as recently touched so _check_manual_changes
-            # doesn't immediately re-trigger holds when it sees diverged states.
-            for entity_id in cleared:
-                climate._mark_integration_touch(entity_id)
-
-        await climate._evaluate_devices()
-        climate.async_write_ha_state()

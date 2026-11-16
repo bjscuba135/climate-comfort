@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import uuid4
+
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
@@ -19,6 +21,7 @@ from .const import (
     CONF_DEVICE_HUMIDITY_THRESHOLD,
     CONF_DEVICE_FAN_MODE,
     CONF_DEVICE_HVAC_MODE_ON,
+    CONF_DEVICE_ID,
     CONF_DEVICE_SWING_HORIZONTAL_MODE,
     CONF_DEVICE_SWING_MODE,
     CONF_DEVICE_LABEL,
@@ -1017,7 +1020,9 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
 
         if user_input is not None:
             clean = {k: v for k, v in user_input.items() if v not in (None, "")}
-            new_data = {**cfg, **clean, CONF_USE_GLOBAL_PRESETS: True}
+            # Leave "use global presets" as it is: forcing it back on here
+            # discarded a room's own preset temperatures on every save.
+            new_data = {**cfg, **clean}
             for key in (CONF_HUMIDITY_SENSOR, CONF_HOUSE_MODE_ENTITY):
                 if key not in clean:
                     new_data.pop(key, None)
@@ -1086,8 +1091,12 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
         if CONF_DEVICE_ACTIVATION_POINT in self._pending:
             self._pending[CONF_DEVICE_ACTIVATION_POINT] = int(self._pending[CONF_DEVICE_ACTIVATION_POINT])
         if self._editing_index is not None:
+            # Keep the stage's identity so its sensor stays the same entity.
+            existing_id = self._devices[self._editing_index].get(CONF_DEVICE_ID)
+            self._pending[CONF_DEVICE_ID] = existing_id or uuid4().hex
             self._devices[self._editing_index] = self._pending
             self._editing_index = None
         else:
+            self._pending[CONF_DEVICE_ID] = uuid4().hex
             self._devices.append(self._pending)
         self._pending = {}
