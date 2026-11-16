@@ -59,7 +59,7 @@ def make_room(devices, room_data=None, global_data=None, hass=None):
             "use_global_presets": True,
             **(room_data or {}),
         },
-        {"devices": [dict(d) for d in devices]},
+        devices=devices,
     )
     hass.config_entries.entries = [global_entry, room_entry]
     hass.data[DOMAIN] = {"global": {}, "room": {}}
@@ -201,6 +201,7 @@ def test_stage_ids_are_assigned_once_and_existing_sensors_follow():
         "room",
         {"entry_type": "room"},
         {"devices": [{"entity_id": "switch.a", "role": "heating"}, {"entity_id": "switch.b", "role": "heating"}]},
+        version=1,
     )
     registry = hass.entity_registry
     registry.entities[("binary_sensor", DOMAIN, "room_device_0")] = "binary_sensor.lounge_a"
@@ -385,5 +386,96 @@ def test_thermostat_off_does_not_resend_off_to_devices_that_are_off():
         await entity._handle_tick()
         offs = [c for c in hass.services.named("set_hvac_mode") if c["hvac_mode"] == "off"]
         assert len(offs) == 2
+
+    run(scenario())
+
+
+# ── Version 2: devices as subentries ─────────────────────────────────────────
+
+
+def test_version_1_device_list_becomes_subentries_and_sensors_are_kept():
+    async def scenario():
+        hass = Hass()
+        entry = Entry(
+            "room",
+            {"entry_type": "room", "name": "Lounge"},
+            {
+                "devices": [
+                    {"entity_id": "climate.trv", "label": "Radiator", "role": "heating", "activation_point": 0},
+                    {"entity_id": "switch.fan", "label": "Fan", "role": "cooling", "activation_point": 2},
+                ],
+                "other": "kept",
+            },
+            version=1,
+        )
+        registry = hass.entity_registry
+        registry.entities[("binary_sensor", DOMAIN, "room_device_0")] = "binary_sensor.lounge_radiator"
+        registry.entities[("binary_sensor", DOMAIN, "room_device_1")] = "binary_sensor.lounge_fan"
+
+        assert await package.async_migrate_entry(hass, entry) is True
+        assert entry.version == 2
+        assert entry.options == {"other": "kept"}
+
+        devices = package.get_device_configs(entry)
+        assert [d["label"] for d in devices] == ["Radiator", "Fan"]
+        assert [s.title for s in entry.subentries.values()] == ["Radiator", "Fan"]
+        # The sensors follow their device onto its permanent id.
+        assert registry.entities == {
+            ("binary_sensor", DOMAIN, f"room_device_{devices[0]['id']}"): "binary_sensor.lounge_radiator",
+            ("binary_sensor", DOMAIN, f"room_device_{devices[1]['id']}"): "binary_sensor.lounge_fan",
+        }
+
+        # Running it again changes nothing.
+        assert await package.async_migrate_entry(hass, entry) is True
+        assert len(entry.subentries) == 2
+
+    run(scenario())
+
+
+def test_migration_refuses_an_entry_from_a_newer_release():
+    async def scenario():
+        entry = Entry("room", {"entry_type": "room"}, version=3)
+        assert await package.async_migrate_entry(Hass(), entry) is False
+
+    run(scenario())
+
+
+def test_deleting_a_device_removes_its_sensor_but_no_others():
+    hass, _entity, entry = make_room([TRV, AIRCON])
+    registry = hass.entity_registry
+    registry.entities = {
+        ("binary_sensor", DOMAIN, "room_device_trv"): "binary_sensor.lounge_radiator",
+        ("binary_sensor", DOMAIN, "room_device_ac"): "binary_sensor.lounge_aircon",
+        ("binary_sensor", DOMAIN, "room_device_gone"): "binary_sensor.lounge_old_heater",
+        ("binary_sensor", DOMAIN, "room_manual_control"): "binary_sensor.lounge_manual_control",
+    }
+    package._remove_orphaned_stage_sensors(hass, entry)
+    assert sorted(registry.entities.values()) == [
+        "binary_sensor.lounge_aircon",
+        "binary_sensor.lounge_manual_control",
+        "binary_sensor.lounge_radiator",
+    ]
+
+
+def test_thermostat_publishes_its_stages_for_the_card():
+    async def scenario():
+        hass, entity, _ = make_room([TRV, AIRCON])
+        hass.entity_registry.entities[("select", DOMAIN, "room_aggressiveness")] = "select.lounge_aggressiveness"
+        entity._attr_native_current_temperature = 18.0
+        await entity._evaluate_devices()
+
+        attrs = entity.extra_state_attributes
+        assert attrs["aggressiveness_entity"] == "select.lounge_aggressiveness"
+        assert attrs["stages"] == [
+            {
+                "id": "trv", "label": "Radiator", "kind": "heating", "threshold": 20.0,
+                "active": True, "manual": False, "entity_id": "climate.trv", "hvac_mode": "heat",
+            },
+            {
+                "id": "ac", "label": "Aircon", "kind": "cooling", "threshold": 22.0,
+                "active": False, "manual": False, "entity_id": "climate.aircon", "hvac_mode": "cool",
+            },
+        ]
+        assert {"stages", "manual_holds"} <= entity._unrecorded_attributes
 
     run(scenario())

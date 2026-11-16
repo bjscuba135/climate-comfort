@@ -13,7 +13,9 @@ import enum
 import importlib.util
 import sys
 import types
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from itertools import count
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -104,6 +106,20 @@ class _EntityCategory(str, enum.Enum):
     DIAGNOSTIC = "diagnostic"
 
 
+_subentry_ids = count(1)
+
+
+@dataclass(frozen=True, kw_only=True)
+class ConfigSubentry:
+    """Same shape as Home Assistant's: only subentry_id has a default."""
+
+    data: dict
+    subentry_type: str
+    title: str
+    unique_id: str | None
+    subentry_id: str = field(default_factory=lambda: f"sub{next(_subentry_ids)}")
+
+
 def _passthrough(func):
     return func
 
@@ -154,7 +170,7 @@ def install_stubs() -> None:
         BinarySensorDeviceClass=_BinarySensorDeviceClass,
         BinarySensorEntity=_BinarySensorEntity,
     )
-    _module("homeassistant.config_entries", ConfigEntry=object)
+    _module("homeassistant.config_entries", ConfigEntry=object, ConfigSubentry=ConfigSubentry)
     _module(
         "homeassistant.const",
         ATTR_TEMPERATURE="temperature",
@@ -171,6 +187,7 @@ def install_stubs() -> None:
     _module(
         "homeassistant.helpers.entity_registry",
         async_get=lambda hass: hass.entity_registry,
+        async_entries_for_config_entry=lambda registry, entry_id: registry.for_entry(entry_id),
     )
     sys.modules["homeassistant.helpers"].entity_registry = sys.modules[
         "homeassistant.helpers.entity_registry"
@@ -214,11 +231,33 @@ class State:
 
 
 class Entry:
-    def __init__(self, entry_id: str, data: dict, options: dict | None = None) -> None:
+    def __init__(
+        self,
+        entry_id: str,
+        data: dict,
+        options: dict | None = None,
+        devices: list[dict] | None = None,
+        version: int = 2,
+    ) -> None:
         self.entry_id = entry_id
+        self.title = data.get("name", entry_id)
         self.data = data
         self.options = options or {}
+        self.version = version
+        self.subentries: dict[str, ConfigSubentry] = {}
         self.update_listeners: list = []
+        for device in devices or []:
+            self.add_device(device)
+
+    def add_device(self, device: dict) -> ConfigSubentry:
+        subentry = ConfigSubentry(
+            data=dict(device),
+            subentry_type="device",
+            title=device.get("label", ""),
+            unique_id=None,
+        )
+        self.subentries[subentry.subentry_id] = subentry
+        return subentry
 
 
 class _States:
@@ -264,8 +303,15 @@ class _ConfigEntries:
     def async_entries(self, _domain=None) -> list[Entry]:
         return list(self.entries)
 
-    def async_update_entry(self, entry, *, data=None, options=None) -> bool:
+    def async_add_subentry(self, entry, subentry) -> bool:
+        entry.subentries[subentry.subentry_id] = subentry
+        return True
+
+    def async_update_entry(self, entry, *, data=None, options=None, version=None) -> bool:
         changed = False
+        if version is not None and version != entry.version:
+            entry.version = version
+            changed = True
         if data is not None and data != entry.data:
             entry.data = data
             changed = True
@@ -284,6 +330,13 @@ class _ConfigEntries:
         self.scheduled.append(entry_id)
 
 
+@dataclass
+class RegistryEntry:
+    entity_id: str
+    domain: str
+    unique_id: str
+
+
 class _EntityRegistry:
     def __init__(self) -> None:
         # (platform domain, integration domain, unique_id) -> entity_id
@@ -291,6 +344,17 @@ class _EntityRegistry:
 
     def async_get_entity_id(self, domain, platform, unique_id):
         return self.entities.get((domain, platform, unique_id))
+
+    def for_entry(self, _entry_id):
+        return [
+            RegistryEntry(entity_id=entity_id, domain=key[0], unique_id=key[2])
+            for key, entity_id in self.entities.items()
+        ]
+
+    def async_remove(self, entity_id) -> None:
+        for key, value in list(self.entities.items()):
+            if value == entity_id:
+                del self.entities[key]
 
     def async_update_entity(self, entity_id, *, new_unique_id) -> None:
         for key, value in list(self.entities.items()):

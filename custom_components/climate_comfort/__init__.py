@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
+from pathlib import Path
+from types import MappingProxyType
 from uuid import uuid4
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
     CONF_DEVICE_ACTIVATE_OFFSET,
     CONF_DEVICE_ACTIVATION_POINT,
+    CONF_DEVICE_ENTITY,
     CONF_DEVICE_ID,
+    CONF_DEVICE_LABEL,
     CONF_DEVICE_ROLE,
     CONF_DEVICES,
     CONF_ENTRY_TYPE,
@@ -20,7 +25,46 @@ from .const import (
     ENTRY_TYPE_GLOBAL,
     ENTRY_TYPE_ROOM,
     ROLE_HEATING,
+    SUBENTRY_TYPE_DEVICE,
 )
+
+_LOGGER = logging.getLogger(__name__)
+
+CARD_FILENAME = "climate-comfort-card.js"
+CARD_URL = f"/{DOMAIN}/{CARD_FILENAME}"
+
+
+def get_device_configs(entry: ConfigEntry) -> list[dict]:
+    """Return the room's controlled devices, one dict per device subentry."""
+    return [
+        {**subentry.data, CONF_DEVICE_ID: subentry.data.get(CONF_DEVICE_ID) or subentry.subentry_id}
+        for subentry in entry.subentries.values()
+        if subentry.subentry_type == SUBENTRY_TYPE_DEVICE
+    ]
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Serve the dashboard card and have the frontend load it.
+
+    The card ships inside the integration, so there is no separate download and
+    no dashboard resource to add by hand. Failing here must never stop the
+    thermostats from loading, so every problem is logged and swallowed.
+    """
+    try:
+        from homeassistant.components.frontend import add_extra_js_url
+        from homeassistant.components.http import StaticPathConfig
+        from homeassistant.loader import async_get_integration
+
+        card_path = Path(__file__).parent / "frontend" / CARD_FILENAME
+        integration = await async_get_integration(hass, DOMAIN)
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(CARD_URL, str(card_path), False)]
+        )
+        # The version query makes browsers fetch the new card after an update.
+        add_extra_js_url(hass, f"{CARD_URL}?v={integration.version}")
+    except Exception:  # noqa: BLE001 - the card is optional, the thermostat is not
+        _LOGGER.exception("Could not register the Climate Comfort dashboard card")
+    return True
 
 # Platforms created for room thermostat entries
 PLATFORMS = ["climate", "binary_sensor", "number", "switch", "button", "select"]
@@ -138,12 +182,67 @@ def async_update_entry_live(hass: HomeAssistant, entry: ConfigEntry, **kwargs) -
     return changed
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Version 1 -> 2: move the device list out of options into subentries."""
+    if entry.version > 2:
+        # Created by a newer release; do not guess at its layout.
+        return False
+    if entry.version == 2:
+        return True
+
+    if entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_ROOM) == ENTRY_TYPE_ROOM:
+        # Bring very old device lists up to date first, so every device has an
+        # activation point and a stable id before it becomes a subentry.
+        _migrate_legacy_device_offsets(hass, entry)
+        _assign_device_ids(hass, entry)
+
+        already = {
+            subentry.data.get(CONF_DEVICE_ID)
+            for subentry in entry.subentries.values()
+            if subentry.subentry_type == SUBENTRY_TYPE_DEVICE
+        }
+        for device in entry.options.get(CONF_DEVICES, []):
+            if device.get(CONF_DEVICE_ID) in already:
+                continue  # a previous attempt got this far
+            hass.config_entries.async_add_subentry(
+                entry,
+                ConfigSubentry(
+                    data=MappingProxyType(dict(device)),
+                    subentry_type=SUBENTRY_TYPE_DEVICE,
+                    title=str(device.get(CONF_DEVICE_LABEL) or device.get(CONF_DEVICE_ENTITY, "Device")),
+                    unique_id=None,
+                ),
+            )
+
+    options = {k: v for k, v in entry.options.items() if k != CONF_DEVICES}
+    hass.config_entries.async_update_entry(entry, options=options, version=2)
+    _LOGGER.info("Migrated Climate Comfort entry '%s' to version 2", entry.title)
+    return True
+
+
+def _remove_orphaned_stage_sensors(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete the sensor of a device stage that no longer exists.
+
+    Without this, deleting a device left its sensor behind as a permanently
+    unavailable entity that had to be removed by hand.
+    """
+    prefix = f"{entry.entry_id}_device_"
+    wanted = {f"{prefix}{device[CONF_DEVICE_ID]}" for device in get_device_configs(entry)}
+    registry = er.async_get(hass)
+    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if (
+            entity.domain == "binary_sensor"
+            and entity.unique_id.startswith(prefix)
+            and entity.unique_id not in wanted
+        ):
+            registry.async_remove(entity.entity_id)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
     if entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_ROOM) == ENTRY_TYPE_ROOM:
-        _migrate_legacy_device_offsets(hass, entry)
-        _assign_device_ids(hass, entry)
+        _remove_orphaned_stage_sensors(hass, entry)
 
     hass.data[DOMAIN][entry.entry_id] = {}
 

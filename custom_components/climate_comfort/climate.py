@@ -26,6 +26,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
@@ -35,6 +36,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 
+from . import get_device_configs
 from .const import (
     ATTR_ACTIVE_DEVICES,
     CONF_DEVICE_ID,
@@ -60,7 +62,6 @@ from .const import (
     CONF_DEVICE_SWING_HORIZONTAL_MODE,
     CONF_DEVICE_SWING_MODE,
     CONF_DEVICE_TARGET_TEMP_OFFSET,
-    CONF_DEVICES,
     CONF_ENTRY_TYPE,
     CONF_HOUSE_MODE_ENTITY,
     CONF_HUMIDITY_SENSOR,
@@ -358,6 +359,9 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
     _attr_min_temp = DEFAULT_MIN_TEMP
     _attr_max_temp = DEFAULT_MAX_TEMP
     _attr_target_temperature_step = DEFAULT_TEMP_STEP
+    # Shown on the dashboard card, but they change with every temperature
+    # reading or count down by the minute, so keep them out of the database.
+    _unrecorded_attributes = frozenset({"stages", "manual_holds"})
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
@@ -372,14 +376,13 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         )
 
         cfg = entry.data
-        opts = entry.options
 
         self._temp_sensor: str = cfg[CONF_TEMPERATURE_SENSOR]
         self._humidity_sensor: str | None = cfg.get(CONF_HUMIDITY_SENSOR)
         self._house_mode_entity: str | None = cfg.get(CONF_HOUSE_MODE_ENTITY)
 
         # Modes are inferred from the configured device roles; no manual selection needed.
-        devices_data: list[dict] = opts.get(CONF_DEVICES, [])
+        devices_data: list[dict] = get_device_configs(entry)
         self._attr_hvac_modes = _infer_hvac_modes(devices_data)
 
         self._attr_preset_mode = MODE_HOME
@@ -1000,6 +1003,21 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         if self._humidity_sensor:
             attrs[ATTR_CURRENT_HUMIDITY] = self._attr_current_humidity
 
+        # Everything the dashboard card needs to draw this room on its own, so
+        # it no longer has to be told about each stage sensor by entity id.
+        attrs["stages"] = self._stage_attributes(lt, ut, point_spacing)
+        if self.hass is not None:
+            registry = er.async_get(self.hass)
+            for key, domain, suffix in (
+                ("aggressiveness_entity", "select", "aggressiveness"),
+                ("reset_entity", "button", "reset_manual_control"),
+            ):
+                entity_id = registry.async_get_entity_id(
+                    domain, DOMAIN, f"{self._entry.entry_id}_{suffix}"
+                )
+                if entity_id:
+                    attrs[key] = entity_id
+
         # Manual holds — show which devices are in hold and time remaining
         if self._manual_holds:
             now = dt_util.utcnow()
@@ -1015,6 +1033,33 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
                 attrs["manual_holds"] = hold_info
 
         return attrs
+
+    def _stage_attributes(self, lt: float, ut: float, point_spacing: float) -> list[dict[str, Any]]:
+        """One entry per configured device stage, in configuration order."""
+        stages: list[dict[str, Any]] = []
+        for device in self._devices:
+            if device.role == ROLE_DEHUMIDIFY:
+                kind = "humidity"
+                threshold: float = device.humidity_threshold
+            elif device.role == ROLE_HEATING:
+                kind = "heating"
+                threshold = round(lt - self._activation_offset_for_device(device, point_spacing), 2)
+            else:
+                kind = "cooling"
+                threshold = round(ut + self._activation_offset_for_device(device, point_spacing), 2)
+            stages.append(
+                {
+                    "id": device.id,
+                    "label": device.label,
+                    "kind": kind,
+                    "threshold": threshold,
+                    "active": device.is_active,
+                    "manual": device.entity_id in self._manual_holds,
+                    "entity_id": device.entity_id,
+                    "hvac_mode": self._device_target_hvac_mode(device) if device.is_climate else None,
+                }
+            )
+        return stages
 
     def manual_control_attributes(self) -> dict[str, Any]:
         """Return concise metadata for the room-level manual-control UI."""
@@ -1035,6 +1080,11 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         return {
             "manual_hold_devices": [label for label, _ in holds],
             "automated_control_resumes_in": f"{next_remaining} min",
+            # A real timestamp, for automations and relative-time displays.
+            "automated_control_resumes_at": min(
+                hold["since"] + timedelta(hours=self._hold_hours)
+                for hold in self._manual_holds.values()
+            ).isoformat(),
             "manual_control_summary": f"Manual control — resumes in {next_remaining} min",
         }
 

@@ -38,8 +38,10 @@ CONF_MODE_ACTIVITY_ENABLED = "mode_activity_enabled"
 CONF_MODE_BOOST_ENABLED = "mode_boost_enabled"
 CONF_HOUSE_MODE_ENTITY = "house_mode_entity"
 
-# Options (entry.options)
+# Legacy: devices were a list in entry.options up to config version 1. They are
+# now config subentries of the room; this key is only read by the migration.
 CONF_DEVICES = "devices"
+SUBENTRY_TYPE_DEVICE = "device"
 
 # Per-device config
 # Stable identifier for a device stage, assigned once and never reused. Entity

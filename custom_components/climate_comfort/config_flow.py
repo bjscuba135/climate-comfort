@@ -5,6 +5,7 @@ from uuid import uuid4
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
+from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.util import slugify
 
@@ -110,16 +111,19 @@ from .const import (
     ROLE_HEATING,
     PROFILE_OPTIONS,
     SECONDARY_UNSET,
+    SUBENTRY_TYPE_DEVICE,
 )
 
 # ── Selector helpers ────────────────────────────────────────────────────────
 
 
-_ROLE_OPTIONS = [
-    selector.SelectOptionDict(value=ROLE_HEATING, label="Heating"),
-    selector.SelectOptionDict(value=ROLE_COOLING, label="Cooling"),
-    selector.SelectOptionDict(value=ROLE_DEHUMIDIFY, label="Dehumidifier"),
-]
+# Labels come from the "selector" section of the translation files.
+_ROLE_SELECTOR = selector.SelectSelector(
+    selector.SelectSelectorConfig(
+        options=[ROLE_HEATING, ROLE_COOLING, ROLE_DEHUMIDIFY],
+        translation_key="role",
+    )
+)
 
 # Fallback list if the selected entity has no hvac_modes attribute yet
 _FALLBACK_CLIMATE_MODES = ["heat", "cool", "heat_cool", "auto", "fan_only", "dry"]
@@ -204,7 +208,8 @@ def _mode_entity_options(hass) -> list[selector.SelectOptionDict]:
 def _profile_selector(default: str = DEFAULT_PROFILE) -> selector.SelectSelector:
     return selector.SelectSelector(
         selector.SelectSelectorConfig(
-            options=[selector.SelectOptionDict(value=p, label=p.title()) for p in PROFILE_OPTIONS],
+            options=list(PROFILE_OPTIONS),
+            translation_key="profile",
             custom_value=False,
         )
     )
@@ -347,6 +352,8 @@ def _secondary_options_for_entity(
     if not values:
         return None
     return [
+        # Listed alongside the device's own raw values, so this one label
+        # cannot come from a translation key.
         selector.SelectOptionDict(value=SECONDARY_UNSET, label="Leave unchanged"),
         *[selector.SelectOptionDict(value=v, label=v) for v in values],
     ]
@@ -355,18 +362,25 @@ def _secondary_options_for_entity(
 # ── Config flow ─────────────────────────────────────────────────────────────
 
 class ClimateComfortConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 1
+    # Version 2 stores each controlled device as a config subentry of its room
+    # instead of a list inside the room's options. See async_migrate_entry.
+    VERSION = 2
 
     def __init__(self) -> None:
         self._data: dict = {}
 
+    @classmethod
+    @callback
+    def async_get_supported_subentry_types(cls, config_entry):
+        """Rooms hold their controlled devices as subentries; Global Defaults has none."""
+        if config_entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_ROOM) != ENTRY_TYPE_ROOM:
+            return {}
+        return {SUBENTRY_TYPE_DEVICE: DeviceSubentryFlow}
+
     async def async_step_user(self, user_input=None):
         return self.async_show_menu(
             step_id="user",
-            menu_options={
-                "room": "Room thermostat",
-                "global_defaults": "Global defaults (shared preset temperatures)",
-            },
+            menu_options=["room", "global_defaults"],
         )
 
     # ── Room setup path ──────────────────────────────────────────────────────
@@ -491,25 +505,14 @@ class ClimateComfortConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
     """
-    Device list management and room settings editing.
+    Room settings and Global Defaults editing.
 
-    Device add/edit flow:
-      1. add_device / edit_device_select → edit_device
-         Captures: label, entity, role
-      2a. device_temp_config  (heating/cooling)
-         Captures: activate_offset, deactivate_offset
-      2b. device_humidity_config  (dehumidifier)
-         Captures: humidity_threshold, humidity_hysteresis, only_when_idle
-      3. device_climate_mode  (climate entities only, any role)
-         Captures: hvac_mode_on (dynamic from entity), optional target_temp_offset
+    Controlled devices are no longer managed here: each is a subentry of its
+    room, added, reconfigured and deleted from the integration page.
     """
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self._config_entry = config_entry
-        self._devices: list[dict] = list(config_entry.options.get(CONF_DEVICES, []))
-        self._pending: dict = {}
-        self._pending_settings: dict = {}
-        self._editing_index: int | None = None
 
     def _global_config(self) -> dict:
         for entry in self.hass.config_entries.async_entries(DOMAIN):
@@ -525,15 +528,10 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
             return await self.async_step_edit_global_defaults()
 
         # ── Room menu ───────────────────────────────────────────────────────
-        base_menu: dict[str, str] = {"add_device": "Add a device"}
-        if self._devices:
-            base_menu["edit_device_select"] = "Edit a device"
-            base_menu["remove_device"] = "Remove a device"
-        base_menu["edit_settings"] = "Edit room settings"
-        base_menu["edit_room_aggressiveness"] = "Edit room aggressiveness"
-        base_menu["finish"] = "Save & close"
-
-        return self.async_show_menu(step_id="init", menu_options=base_menu)
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["edit_settings", "edit_room_aggressiveness", "finish"],
+        )
 
     # ── Global defaults edit (shown instead of the room menu) ────────────────
     # ── Global defaults edit (split into smaller pages) ─────────────────────
@@ -541,13 +539,13 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
         """Menu for editing the Global Defaults entry in smaller chunks."""
         return self.async_show_menu(
             step_id="edit_global_defaults",
-            menu_options={
-                "edit_global_general": "General limits",
-                "edit_global_modes": "Mode temperatures",
-                "edit_global_profiles": "Aggressiveness profiles",
-                "edit_global_floors": "Floor mode selectors",
-                "finish": "Save & close",
-            },
+            menu_options=[
+                "edit_global_general",
+                "edit_global_modes",
+                "edit_global_profiles",
+                "edit_global_floors",
+                "finish",
+            ],
         )
 
     async def async_step_edit_global_general(self, user_input=None):
@@ -582,14 +580,14 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
         """Menu for editing global aggressiveness profiles in grouped pages."""
         return self.async_show_menu(
             step_id="edit_global_profiles",
-            menu_options={
-                "edit_global_profiles_default": "Default profile",
-                "edit_global_profiles_relaxed": "Relaxed profile",
-                "edit_global_profiles_balanced": "Balanced profile",
-                "edit_global_profiles_responsive": "Responsive profile",
-                "edit_global_profiles_aggressive": "Aggressive profile",
-                "edit_global_defaults": "Back",
-            },
+            menu_options=[
+                "edit_global_profiles_default",
+                "edit_global_profiles_relaxed",
+                "edit_global_profiles_balanced",
+                "edit_global_profiles_responsive",
+                "edit_global_profiles_aggressive",
+                "edit_global_defaults",
+            ],
         )
 
     async def async_step_edit_global_profiles_default(self, user_input=None):
@@ -660,14 +658,14 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
         """Menu for editing per-room aggressiveness profile settings."""
         return self.async_show_menu(
             step_id="edit_room_aggressiveness",
-            menu_options={
-                "edit_room_aggressiveness_default": "Default profile",
-                "edit_room_aggressiveness_relaxed": "Relaxed profile",
-                "edit_room_aggressiveness_balanced": "Balanced profile",
-                "edit_room_aggressiveness_responsive": "Responsive profile",
-                "edit_room_aggressiveness_aggressive": "Aggressive profile",
-                "init": "Back",
-            },
+            menu_options=[
+                "edit_room_aggressiveness_default",
+                "edit_room_aggressiveness_relaxed",
+                "edit_room_aggressiveness_balanced",
+                "edit_room_aggressiveness_responsive",
+                "edit_room_aggressiveness_aggressive",
+                "init",
+            ],
         )
 
     async def async_step_edit_room_aggressiveness_default(self, user_input=None):
@@ -739,278 +737,6 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
             data_schema=vol.Schema(field_factory(cfg)),
         )
 
-    # ── Step 1: label / entity / role ────────────────────────────────────────
-
-    async def async_step_add_device(self, user_input=None):
-        self._editing_index = None
-        return await self._step_device_identity(user_input)
-
-    async def async_step_edit_device_select(self, user_input=None):
-        if user_input is not None:
-            target = user_input["device_to_edit"]
-            if target == "__back__":
-                return await self.async_step_init()
-            idx_str, _, _eid = target.partition("|")
-            try:
-                self._editing_index = int(idx_str)
-            except ValueError:
-                self._editing_index = next(
-                    (i for i, d in enumerate(self._devices) if d[CONF_DEVICE_ENTITY] == target),
-                    None,
-                )
-            return await self.async_step_edit_device()
-
-        # ← Back appears first; devices follow with an index prefix so duplicate
-        # entity_ids (multi-stage escalation) remain individually selectable.
-        options = [
-            selector.SelectOptionDict(value="__back__", label="← Back to menu"),
-            *[
-                selector.SelectOptionDict(
-                    value=f"{i}|{d[CONF_DEVICE_ENTITY]}",
-                    label=f"{d.get(CONF_DEVICE_LABEL, d[CONF_DEVICE_ENTITY])} ({d.get(CONF_DEVICE_ROLE, '')})",
-                )
-                for i, d in enumerate(self._devices)
-            ],
-        ]
-        return self.async_show_form(
-            step_id="edit_device_select",
-            data_schema=vol.Schema({
-                vol.Required("device_to_edit"): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=options)
-                )
-            }),
-        )
-
-    async def async_step_edit_device(self, user_input=None):
-        return await self._step_device_identity(user_input)
-
-    async def _step_device_identity(self, user_input):
-        """Step 1 of device add/edit: label, entity, role."""
-        editing = self._editing_index is not None
-        step_id = "edit_device" if editing else "add_device"
-        existing = self._devices[self._editing_index] if editing and self._editing_index is not None else {}
-
-        if user_input is not None:
-            self._pending = dict(user_input)
-            role = user_input[CONF_DEVICE_ROLE]
-            if role == ROLE_DEHUMIDIFY:
-                return await self.async_step_device_humidity_config()
-            return await self.async_step_device_temp_config()
-
-        return self.async_show_form(
-            step_id=step_id,
-            data_schema=vol.Schema({
-                vol.Required(CONF_DEVICE_LABEL, default=existing.get(CONF_DEVICE_LABEL, "")): str,
-                vol.Required(CONF_DEVICE_ENTITY, default=existing.get(CONF_DEVICE_ENTITY, vol.UNDEFINED)): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain=["switch", "climate", "input_boolean", "fan"])
-                ),
-                vol.Required(CONF_DEVICE_ROLE, default=existing.get(CONF_DEVICE_ROLE, ROLE_HEATING)): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=_ROLE_OPTIONS)
-                ),
-            }),
-        )
-
-    # ── Step 2a: temperature device config ───────────────────────────────────
-
-    async def async_step_device_temp_config(self, user_input=None):
-        editing = self._editing_index is not None
-        existing = self._devices[self._editing_index] if editing and self._editing_index is not None else {}
-
-        if user_input is not None:
-            self._pending.update(user_input)
-            if self._pending.get(CONF_DEVICE_ENTITY, "").startswith("climate."):
-                return await self.async_step_device_climate_mode()
-            self._commit_pending()
-            return await self.async_step_init()
-
-        return self.async_show_form(
-            step_id="device_temp_config",
-            data_schema=vol.Schema({
-                vol.Required(
-                    CONF_DEVICE_ACTIVATION_POINT,
-                    default=str(int(existing.get(CONF_DEVICE_ACTIVATION_POINT, 0))),
-                ): _activation_point_selector(
-                    self._pending.get(CONF_DEVICE_ROLE, ROLE_HEATING),
-                    int(existing.get(CONF_DEVICE_ACTIVATION_POINT, 0)),
-                ),
-                vol.Required(
-                    CONF_DEVICE_DEACTIVATE_OFFSET,
-                    default=float(existing.get(CONF_DEVICE_DEACTIVATE_OFFSET, DEFAULT_DEACTIVATE_OFFSET)),
-                ): _num(0.1, 5.0, step=0.1, mode=selector.NumberSelectorMode.BOX),
-                vol.Required(
-                    CONF_DEVICE_EMERGENCY_ENABLED,
-                    default=bool(existing.get(CONF_DEVICE_EMERGENCY_ENABLED, False)),
-                ): selector.BooleanSelector(),
-            }),
-            description_placeholders={
-                "role": self._pending.get(CONF_DEVICE_ROLE, ""),
-                "activate_help": (
-                    "Heating devices choose -5..0; cooling devices choose 0..5. "
-                    "The selected point is multiplied by the active profile point spacing."
-                ),
-            },
-        )
-
-    # ── Step 2b: humidity / dehumidifier config ───────────────────────────────
-
-    async def async_step_device_humidity_config(self, user_input=None):
-        editing = self._editing_index is not None
-        existing = self._devices[self._editing_index] if editing and self._editing_index is not None else {}
-
-        if user_input is not None:
-            self._pending.update(user_input)
-            if self._pending.get(CONF_DEVICE_ENTITY, "").startswith("climate."):
-                return await self.async_step_device_climate_mode()
-            self._commit_pending()
-            return await self.async_step_init()
-
-        return self.async_show_form(
-            step_id="device_humidity_config",
-            data_schema=vol.Schema({
-                vol.Required(
-                    CONF_DEVICE_HUMIDITY_THRESHOLD,
-                    default=float(existing.get(CONF_DEVICE_HUMIDITY_THRESHOLD, DEFAULT_HUMIDITY_THRESHOLD)),
-                ): _num(10, 100, step=1, unit="%", mode=selector.NumberSelectorMode.BOX),
-                vol.Required(
-                    CONF_DEVICE_HUMIDITY_HYSTERESIS,
-                    default=float(existing.get(CONF_DEVICE_HUMIDITY_HYSTERESIS, DEFAULT_HUMIDITY_HYSTERESIS)),
-                ): _num(1, 20, step=1, unit="%", mode=selector.NumberSelectorMode.BOX),
-                vol.Required(
-                    CONF_DEVICE_DEHUMIDIFY_ONLY_WHEN_IDLE,
-                    default=bool(existing.get(CONF_DEVICE_DEHUMIDIFY_ONLY_WHEN_IDLE, True)),
-                ): selector.BooleanSelector(),
-            }),
-        )
-
-    # ── Step 3: climate mode (dynamic from entity) ────────────────────────────
-
-    async def async_step_device_climate_mode(self, user_input=None):
-        editing = self._editing_index is not None
-        existing = self._devices[self._editing_index] if editing and self._editing_index is not None else {}
-        entity_id = self._pending.get(CONF_DEVICE_ENTITY, "")
-        role = self._pending.get(CONF_DEVICE_ROLE, ROLE_HEATING)
-
-        if user_input is not None:
-            self._pending.update(user_input)
-            self._commit_pending()
-            return await self.async_step_init()
-
-        # Dynamically build the HVAC mode list from the entity's actual supported modes
-        mode_options = _climate_modes_for_entity(self.hass, entity_id)
-
-        default_mode = existing.get(
-            CONF_DEVICE_HVAC_MODE_ON,
-            "dry" if role == ROLE_DEHUMIDIFY else ("heat" if role == ROLE_HEATING else "cool"),
-        )
-        # Stored value may be signed (old format) or unsigned (new) — always show positive
-        stored_offset = existing.get(CONF_DEVICE_TARGET_TEMP_OFFSET)
-        default_offset = abs(float(stored_offset)) if stored_offset is not None else 3.0
-
-        schema_fields: dict = {
-            vol.Required(CONF_DEVICE_HVAC_MODE_ON, default=default_mode): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=mode_options)
-            ),
-        }
-        # Target temp overshoot — always a positive value, direction inferred from role,
-        # exactly like activate_offset. Not applicable to dehumidify.
-        if role != ROLE_DEHUMIDIFY:
-            schema_fields[vol.Required(CONF_DEVICE_TARGET_TEMP_OFFSET, default=default_offset)] = (
-                _num(0.0, 15.0, step=0.5, mode=selector.NumberSelectorMode.BOX)
-            )
-
-        # Optional secondary attributes, alongside the main mode selection above.
-        # Offered only for what this entity actually advertises, and offered for
-        # every role — fan speed matters just as much on a heat pump in heat mode
-        # or a dry-mode dehumidifier as it does on an AC in cool.
-        secondary_offered: list[str] = []
-        for conf_key, attribute, label in (
-            (CONF_DEVICE_FAN_MODE, "fan_modes", "fan speed"),
-            (CONF_DEVICE_SWING_MODE, "swing_modes", "vertical swing"),
-            (
-                CONF_DEVICE_SWING_HORIZONTAL_MODE,
-                "swing_horizontal_modes",
-                "horizontal swing",
-            ),
-        ):
-            options = _secondary_options_for_entity(self.hass, entity_id, attribute)
-            if options is None:
-                continue
-            secondary_offered.append(label)
-            schema_fields[
-                vol.Optional(conf_key, default=existing.get(conf_key, SECONDARY_UNSET))
-            ] = selector.SelectSelector(selector.SelectSelectorConfig(options=options))
-
-        if secondary_offered:
-            # Oxford-free list: "a", "a and b", "a, b and c" — three are possible
-            # now that vertical and horizontal swing are separate.
-            if len(secondary_offered) == 1:
-                offered = secondary_offered[0]
-            else:
-                offered = f"{', '.join(secondary_offered[:-1])} and {secondary_offered[-1]}"
-            secondary_help = (
-                f"This device also supports {offered}. "
-                "These are applied when the device is switched on, after the mode above. "
-                "Leave any of them on 'Leave unchanged' to let the device keep whatever "
-                "it was last set to."
-            )
-        else:
-            secondary_help = (
-                "This device reports no adjustable fan speed or swing direction, so "
-                "there is nothing extra to set. (If it was unavailable when you opened "
-                "this form, reload the integration and edit the device again.)"
-            )
-
-        return self.async_show_form(
-            step_id="device_climate_mode",
-            data_schema=vol.Schema(schema_fields),
-            description_placeholders={
-                "entity_id": entity_id,
-                "offset_help": (
-                    "Direction is automatic: heating adds this to the setpoint, "
-                    "cooling subtracts it. "
-                    "E.g. 3 on a cooling device → AC targets setpoint−3°C so it actually runs. "
-                    "Set to 0 to use the setpoint directly as the device target."
-                ),
-                "secondary_help": secondary_help,
-            },
-        )
-
-    # ── Remove device ────────────────────────────────────────────────────────
-
-    async def async_step_remove_device(self, user_input=None):
-        if not self._devices:
-            return await self.async_step_init()
-
-        if user_input is not None:
-            idx_str = user_input.get("device_to_remove", "")
-            if idx_str == "__back__":
-                return await self.async_step_init()
-            try:
-                idx = int(idx_str.split("|")[0])
-                self._devices.pop(idx)
-            except (ValueError, IndexError):
-                pass
-            return await self.async_step_init()
-
-        options = [
-            selector.SelectOptionDict(value="__back__", label="← Back to menu"),
-            *[
-                selector.SelectOptionDict(
-                    value=f"{i}|{d[CONF_DEVICE_ENTITY]}",
-                    label=f"{d.get(CONF_DEVICE_LABEL, d[CONF_DEVICE_ENTITY])} ({d.get(CONF_DEVICE_ROLE, '')})",
-                )
-                for i, d in enumerate(self._devices)
-            ],
-        ]
-        return self.async_show_form(
-            step_id="remove_device",
-            data_schema=vol.Schema({
-                vol.Required("device_to_remove"): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=options)
-                )
-            }),
-        )
-
     # ── Edit room settings (step 1: sensor + global toggle) ──────────────────
 
     async def async_step_edit_settings(self, user_input=None):
@@ -1061,16 +787,12 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
             ): _num(0, 300, step=5, unit="s", mode=selector.NumberSelectorMode.SLIDER),
         }
 
+        # Numbers only: the surrounding sentence lives in the translation file.
         placeholders = {
-            "global_summary": (
-                f"Modes and profiles are inherited from Global Defaults. "
-                f"Home {global_cfg.get(CONF_MODE_HOME, '?')} °C · "
-                f"Comfort {global_cfg.get(CONF_MODE_WARMUP, '?')} °C · "
-                f"Eco {global_cfg.get(CONF_MODE_COOLDOWN, '?')} °C · "
-                f"Activity {global_cfg.get(CONF_MODE_ACTIVITY, '?')} °C · "
-                f"Boost {global_cfg.get(CONF_MODE_BOOST, '?')} °C"
-            )
-        } if global_cfg else None
+            "home": str(global_cfg.get(CONF_MODE_HOME, DEFAULT_MODE_HOME)),
+            "comfort": str(global_cfg.get(CONF_MODE_WARMUP, DEFAULT_MODE_WARMUP)),
+            "eco": str(global_cfg.get(CONF_MODE_COOLDOWN, DEFAULT_MODE_COOLDOWN)),
+        }
 
         return self.async_show_form(
             step_id="edit_settings",
@@ -1081,22 +803,149 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
     # ── Save ─────────────────────────────────────────────────────────────────
 
     async def async_step_finish(self, user_input=None):
-        if self._config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_GLOBAL:
-            return self.async_create_entry(title="", data={})
-        return self.async_create_entry(title="", data={CONF_DEVICES: self._devices})
+        # Every page saves as it goes; this only closes the dialog.
+        return self.async_create_entry(title="", data=dict(self._config_entry.options))
 
-    # ── Internal helpers ──────────────────────────────────────────────────────
 
-    def _commit_pending(self) -> None:
-        if CONF_DEVICE_ACTIVATION_POINT in self._pending:
-            self._pending[CONF_DEVICE_ACTIVATION_POINT] = int(self._pending[CONF_DEVICE_ACTIVATION_POINT])
-        if self._editing_index is not None:
-            # Keep the stage's identity so its sensor stays the same entity.
-            existing_id = self._devices[self._editing_index].get(CONF_DEVICE_ID)
-            self._pending[CONF_DEVICE_ID] = existing_id or uuid4().hex
-            self._devices[self._editing_index] = self._pending
-            self._editing_index = None
+# ── Device subentry flow ─────────────────────────────────────────────────────
+
+class DeviceSubentryFlow(config_entries.ConfigSubentryFlow):
+    """
+    Add or reconfigure one controlled device (a "stage") of a room.
+
+    Two pages instead of the old three- or four-page wizard:
+      1. user / reconfigure — name, entity and role
+      2. settings — every remaining setting that applies to that entity and
+         role, on one form: thresholds, plus mode, target overshoot and fan /
+         swing settings when the entity is a climate device.
+    """
+
+    def __init__(self) -> None:
+        self._pending: dict = {}
+        self._existing: dict = {}
+
+    async def async_step_user(self, user_input=None):
+        return await self._step_identity("user", user_input)
+
+    async def async_step_reconfigure(self, user_input=None):
+        if not self._existing:
+            self._existing = dict(self._get_reconfigure_subentry().data)
+        return await self._step_identity("reconfigure", user_input)
+
+    async def _step_identity(self, step_id: str, user_input):
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            needs_humidity = user_input[CONF_DEVICE_ROLE] == ROLE_DEHUMIDIFY
+            if needs_humidity and not self._get_entry().data.get(CONF_HUMIDITY_SENSOR):
+                # Without a humidity reading a dehumidifier stage can never run.
+                errors["base"] = "humidity_sensor_required"
+            else:
+                self._pending = dict(user_input)
+                return await self.async_step_settings()
+
+        defaults = user_input or self._existing
+        return self.async_show_form(
+            step_id=step_id,
+            data_schema=vol.Schema({
+                vol.Required(CONF_DEVICE_LABEL, default=defaults.get(CONF_DEVICE_LABEL, "")): str,
+                vol.Required(CONF_DEVICE_ENTITY, default=defaults.get(CONF_DEVICE_ENTITY, vol.UNDEFINED)): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain=["switch", "climate", "input_boolean", "fan"])
+                ),
+                vol.Required(CONF_DEVICE_ROLE, default=defaults.get(CONF_DEVICE_ROLE, ROLE_HEATING)): _ROLE_SELECTOR,
+            }),
+            errors=errors,
+        )
+
+    async def async_step_settings(self, user_input=None):
+        role = self._pending.get(CONF_DEVICE_ROLE, ROLE_HEATING)
+        entity_id = self._pending.get(CONF_DEVICE_ENTITY, "")
+        is_climate = entity_id.startswith("climate.")
+        # Settings saved for a different role or entity are not carried over.
+        same_kind = (
+            self._existing.get(CONF_DEVICE_ROLE) == role
+            and self._existing.get(CONF_DEVICE_ENTITY) == entity_id
+        )
+        existing = self._existing if same_kind else {}
+
+        if user_input is not None:
+            data = {**self._pending, **user_input}
+            if CONF_DEVICE_ACTIVATION_POINT in data:
+                data[CONF_DEVICE_ACTIVATION_POINT] = int(data[CONF_DEVICE_ACTIVATION_POINT])
+            # The id never changes, so the stage's sensor stays the same entity.
+            data[CONF_DEVICE_ID] = self._existing.get(CONF_DEVICE_ID) or uuid4().hex
+            title = data[CONF_DEVICE_LABEL]
+            if self.source == config_entries.SOURCE_USER:
+                return self.async_create_entry(title=title, data=data)
+            return self.async_update_and_abort(
+                self._get_entry(),
+                self._get_reconfigure_subentry(),
+                title=title,
+                data=data,
+            )
+
+        fields: dict = {}
+        if role == ROLE_DEHUMIDIFY:
+            fields[vol.Required(
+                CONF_DEVICE_HUMIDITY_THRESHOLD,
+                default=float(existing.get(CONF_DEVICE_HUMIDITY_THRESHOLD, DEFAULT_HUMIDITY_THRESHOLD)),
+            )] = _num(10, 100, step=1, unit="%", mode=selector.NumberSelectorMode.BOX)
+            fields[vol.Required(
+                CONF_DEVICE_HUMIDITY_HYSTERESIS,
+                default=float(existing.get(CONF_DEVICE_HUMIDITY_HYSTERESIS, DEFAULT_HUMIDITY_HYSTERESIS)),
+            )] = _num(1, 20, step=1, unit="%", mode=selector.NumberSelectorMode.BOX)
+            fields[vol.Required(
+                CONF_DEVICE_DEHUMIDIFY_ONLY_WHEN_IDLE,
+                default=bool(existing.get(CONF_DEVICE_DEHUMIDIFY_ONLY_WHEN_IDLE, True)),
+            )] = selector.BooleanSelector()
         else:
-            self._pending[CONF_DEVICE_ID] = uuid4().hex
-            self._devices.append(self._pending)
-        self._pending = {}
+            point = int(existing.get(CONF_DEVICE_ACTIVATION_POINT, 0))
+            fields[vol.Required(
+                CONF_DEVICE_ACTIVATION_POINT, default=str(point)
+            )] = _activation_point_selector(role, point)
+            fields[vol.Required(
+                CONF_DEVICE_DEACTIVATE_OFFSET,
+                default=float(existing.get(CONF_DEVICE_DEACTIVATE_OFFSET, DEFAULT_DEACTIVATE_OFFSET)),
+            )] = _num(0.1, 5.0, step=0.1, mode=selector.NumberSelectorMode.BOX)
+            fields[vol.Required(
+                CONF_DEVICE_EMERGENCY_ENABLED,
+                default=bool(existing.get(CONF_DEVICE_EMERGENCY_ENABLED, False)),
+            )] = selector.BooleanSelector()
+
+        if is_climate:
+            default_mode = existing.get(
+                CONF_DEVICE_HVAC_MODE_ON,
+                "dry" if role == ROLE_DEHUMIDIFY else ("heat" if role == ROLE_HEATING else "cool"),
+            )
+            fields[vol.Required(CONF_DEVICE_HVAC_MODE_ON, default=default_mode)] = selector.SelectSelector(
+                selector.SelectSelectorConfig(options=_climate_modes_for_entity(self.hass, entity_id))
+            )
+            # Target overshoot is always positive; the direction follows the
+            # role. Not applicable to dehumidifying.
+            if role != ROLE_DEHUMIDIFY:
+                stored_offset = existing.get(CONF_DEVICE_TARGET_TEMP_OFFSET)
+                default_offset = abs(float(stored_offset)) if stored_offset is not None else 3.0
+                fields[vol.Required(CONF_DEVICE_TARGET_TEMP_OFFSET, default=default_offset)] = (
+                    _num(0.0, 15.0, step=0.5, mode=selector.NumberSelectorMode.BOX)
+                )
+            # Optional secondary attributes, offered only for what this entity
+            # actually advertises, and for every role.
+            for conf_key, attribute in (
+                (CONF_DEVICE_FAN_MODE, "fan_modes"),
+                (CONF_DEVICE_SWING_MODE, "swing_modes"),
+                (CONF_DEVICE_SWING_HORIZONTAL_MODE, "swing_horizontal_modes"),
+            ):
+                options = _secondary_options_for_entity(self.hass, entity_id, attribute)
+                if options is None:
+                    continue
+                fields[
+                    vol.Optional(conf_key, default=existing.get(conf_key, SECONDARY_UNSET))
+                ] = selector.SelectSelector(selector.SelectSelectorConfig(options=options))
+
+        return self.async_show_form(
+            step_id="settings",
+            data_schema=vol.Schema(fields),
+            description_placeholders={
+                "label": self._pending.get(CONF_DEVICE_LABEL, ""),
+                "entity_id": entity_id,
+            },
+        )

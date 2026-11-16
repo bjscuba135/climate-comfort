@@ -14,6 +14,7 @@ README = (ROOT / "README.md").read_text(encoding="utf-8")
 STRINGS = json.loads((REPOSITORY_ROOT / "strings.json").read_text(encoding="utf-8"))
 TRANSLATIONS = json.loads((REPOSITORY_ROOT / "translations/en.json").read_text(encoding="utf-8"))
 MANIFEST = json.loads((REPOSITORY_ROOT / "manifest.json").read_text(encoding="utf-8"))
+CARD = (REPOSITORY_ROOT / "frontend/climate-comfort-card.js").read_text(encoding="utf-8")
 
 
 def _method_body(source: str, marker: str, next_marker: str) -> str:
@@ -292,11 +293,11 @@ def test_climate_entity_uses_home_assistant_hvac_modes_and_set_temperature_mode_
 
 
 def test_device_activation_points_are_role_limited_selects():
-    body = _method_body(CONFIG_FLOW, "async def async_step_device_temp_config", "# ── Step 2b")
+    body = _method_body(CONFIG_FLOW, "async def async_step_settings", "if is_climate:")
     assert "_activation_point_selector" in body
     assert "ROLE_HEATING" in body
     assert "range(-20, 1)" in CONFIG_FLOW and "range(0, 21)" in CONFIG_FLOW
-    activation_field = body.split("CONF_DEVICE_ACTIVATION_POINT", 1)[1].split("CONF_DEVICE_DEACTIVATE_OFFSET", 1)[0]
+    activation_field = body.split("point = int(", 1)[1].split("CONF_DEVICE_DEACTIVATE_OFFSET", 1)[0]
     assert "_activation_point_selector" in activation_field
     assert "NumberSelector" not in activation_field
 
@@ -446,16 +447,15 @@ def test_secondary_climate_attribute_fields_are_offered_only_when_entity_support
     # be left unmanaged.
     assert "SECONDARY_UNSET, label=\"Leave unchanged\"" in helper
 
-    step = _method_body(CONFIG_FLOW, "async def async_step_device_climate_mode", "# ── Remove device")
-    assert '(CONF_DEVICE_FAN_MODE, "fan_modes", "fan speed")' in step
-    assert '(CONF_DEVICE_SWING_MODE, "swing_modes", "vertical swing")' in step
-    assert 'CONF_DEVICE_SWING_HORIZONTAL_MODE,' in step
-    assert '"swing_horizontal_modes",' in step
+    step = CONFIG_FLOW.split("async def async_step_settings", 1)[1]
+    assert '(CONF_DEVICE_FAN_MODE, "fan_modes")' in step
+    assert '(CONF_DEVICE_SWING_MODE, "swing_modes")' in step
+    assert '(CONF_DEVICE_SWING_HORIZONTAL_MODE, "swing_horizontal_modes")' in step
     assert "if options is None" in step and "continue" in step
     assert "vol.Optional(conf_key, default=existing.get(conf_key, SECONDARY_UNSET))" in step
 
     for source in (STRINGS, TRANSLATIONS):
-        fields = source["options"]["step"]["device_climate_mode"]
+        fields = source["config_subentries"]["device"]["step"]["settings"]
         assert "fan_mode" in fields["data"]
         assert "swing_mode" in fields["data"]
         assert "swing_horizontal_mode" in fields["data"]
@@ -544,7 +544,7 @@ def test_minimum_ha_version_covers_the_apis_actually_called():
 
 
 def test_card_suggestion_is_narrow_enough_not_to_spam_the_picker():
-    card = (ROOT / "frontend/climate-comfort-card.js").read_text(encoding="utf-8")
+    card = CARD
     assert "getEntitySuggestion:" in card
     body = card.split("getEntitySuggestion:", 1)[1].split("});", 1)[0]
     # Must reject anything that is not one of our own thermostats: a plain climate
@@ -553,3 +553,99 @@ def test_card_suggestion_is_narrow_enough_not_to_spam_the_picker():
     assert "comfort_zone" in body and "effective_setpoint" in body
     assert body.count("return null") >= 2
     assert "type: 'custom:climate-comfort-card'" in body
+
+
+# ── Version 2 ────────────────────────────────────────────────────────────────
+
+
+def _flatten(node, prefix=""):
+    out = {}
+    for key, value in node.items():
+        if isinstance(value, dict):
+            out.update(_flatten(value, f"{prefix}{key}."))
+        else:
+            out[f"{prefix}{key}"] = value
+    return out
+
+
+def test_strings_and_english_translation_are_identical():
+    # They had drifted apart: strings.json still described steps removed long ago.
+    assert STRINGS == TRANSLATIONS
+
+
+def test_devices_are_managed_as_subentries_not_in_the_options_flow():
+    assert "VERSION = 2" in CONFIG_FLOW
+    assert "def async_get_supported_subentry_types(cls, config_entry)" in CONFIG_FLOW
+    assert "class DeviceSubentryFlow(config_entries.ConfigSubentryFlow)" in CONFIG_FLOW
+    assert "return {SUBENTRY_TYPE_DEVICE: DeviceSubentryFlow}" in CONFIG_FLOW
+    options_flow = _method_body(CONFIG_FLOW, "class ClimateComfortOptionsFlow", "class DeviceSubentryFlow")
+    for removed in ("add_device", "remove_device", "edit_device", "_commit_pending", "CONF_DEVICES"):
+        assert removed not in options_flow
+    assert "async def async_migrate_entry" in INIT
+    assert "hass.config_entries.async_add_subentry(" in INIT
+    assert "version=2" in INIT
+
+
+def test_every_flow_step_has_translations():
+    flat = _flatten(STRINGS)
+    device_flow = CONFIG_FLOW.split("class DeviceSubentryFlow", 1)[1]
+    for step in ("user", "reconfigure", "settings"):
+        assert f"config_subentries.device.step.{step}.title" in flat
+    for key in ("user", "reconfigure"):
+        assert f"config_subentries.device.initiate_flow.{key}" in flat
+    assert "config_subentries.device.error.humidity_sensor_required" in flat
+    assert '"humidity_sensor_required"' in device_flow
+    # Every field the settings page can show has a label and a description.
+    for field in (
+        "activation_point", "deactivate_offset", "emergency_enabled",
+        "humidity_threshold", "humidity_hysteresis", "dehumidify_only_when_idle",
+        "hvac_mode_on", "target_temp_offset", "fan_mode", "swing_mode", "swing_horizontal_mode",
+    ):
+        assert f"config_subentries.device.step.settings.data.{field}" in flat
+        assert f"config_subentries.device.step.settings.data_description.{field}" in flat
+    # Placeholders used in descriptions are the ones the flow supplies.
+    assert "{label}" in flat["config_subentries.device.step.settings.description"]
+    assert "{entity_id}" in flat["config_subentries.device.step.settings.description"]
+    assert '"label":' in device_flow and '"entity_id":' in device_flow
+    for placeholder in ("{home}", "{comfort}", "{eco}"):
+        assert placeholder in flat["options.step.edit_settings.description"]
+    assert "global_summary" not in CONFIG_FLOW
+
+
+def test_menus_and_selectors_take_their_labels_from_translations():
+    import re
+
+    # A dict would hard-code English labels; a list makes Home Assistant look
+    # each step id up in the translation file.
+    assert "menu_options={" not in CONFIG_FLOW
+    flat = _flatten(STRINGS)
+    menus = re.findall(r'step_id="(\w+)",\s*menu_options=\[(.*?)\]', CONFIG_FLOW, flags=re.S)
+    assert len(menus) == 5
+    for step_id, body in menus:
+        section = "config" if step_id == "user" else "options"
+        for option in re.findall(r'"(\w+)"', body):
+            assert f"{section}.step.{step_id}.menu_options.{option}" in flat, (step_id, option)
+    assert 'translation_key="role"' in CONFIG_FLOW
+    assert 'translation_key="profile"' in CONFIG_FLOW
+    for role in ("heating", "cooling", "dehumidify"):
+        assert f"selector.role.options.{role}" in flat
+    for profile in ("relaxed", "balanced", "responsive", "aggressive"):
+        assert f"selector.profile.options.{profile}" in flat
+    assert "config.abort.global_defaults_required" in flat
+
+
+def test_card_ships_with_the_integration_and_configures_itself():
+    assert MANIFEST["dependencies"] == ["frontend", "http"]
+    assert "async def async_setup(hass: HomeAssistant, config: dict) -> bool:" in INIT
+    assert "async_register_static_paths" in INIT and "add_extra_js_url" in INIT
+    # Reads its stages and aggressiveness control from the thermostat...
+    assert "_stagesFromAttributes(attrs)" in CARD
+    assert "attributes?.aggressiveness_entity" in CARD
+    # ...while a hand-written triggers list keeps working.
+    assert "this._config.triggers.length" in CARD
+    assert "static getConfigForm()" in CARD
+    assert "integration: 'comfort_climate', domain: 'climate'" in CARD
+    assert "if (!customElements.get('climate-comfort-card'))" in CARD
+    # Dashboards still pointing at the old file are handed on.
+    shim = (ROOT / "frontend/climate-comfort-card.js").read_text(encoding="utf-8")
+    assert "import('/comfort_climate/climate-comfort-card.js')" in shim

@@ -8,6 +8,7 @@ A custom Home Assistant integration that turns any collection of switches, fans,
 
 - [How it works](#how-it-works)
 - [Features](#features)
+- [Upgrading to 2.0.0](#upgrading-to-200)
 - [Upgrading to 1.3.0](#upgrading-to-130)
 - [Installation](#installation)
 - [Setup](#setup)
@@ -56,8 +57,41 @@ Climate Comfort creates a **virtual thermostat** for each room. You tell it whic
 - **Global defaults** — share preset temperatures and comfort-zone width across all rooms; override per-room at any time
 - **House and floor mode selectors** — a single entity change cascades the active preset to every room, or just the rooms on one floor
 - **Live number entities** — edit preset temperatures and comfort zone directly from the device page without opening the options flow
+- **Built-in dashboard card** — a comfort-band card that configures itself from the room's thermostat, with a visual editor
 - **Fan speed and swing direction** — optionally set a climate device's fan speed and its vertical and horizontal swing directions when it activates, alongside the HVAC mode
 - **Smart HVAC mode** — supported modes are inferred automatically from the device roles configured; no manual selection needed
+
+---
+
+## Upgrading to 2.0.0
+
+**Take a backup first.** 2.0.0 changes how each room's devices are stored, and
+the change cannot be undone by installing an older version: 1.x will refuse to
+load a room that 2.0.0 has migrated. Restoring the backup is the way back.
+
+What changes when you update:
+
+- **Devices are managed on the integration page.** Each device a room controls
+  is now listed under that room in *Settings → Devices & services → Climate
+  Comfort*, with **Add device** on the room and *Reconfigure* / *Delete* on each
+  device. The device pages in the room's *Configure* dialog are gone. Existing
+  devices are moved across automatically, with their sensors and history.
+- **Adding a device is two pages, not four.** Name, entity and role first; then
+  one page with every setting that applies to that device.
+- **Deleting a device removes its sensor** instead of leaving an unavailable
+  entity behind.
+- **The dashboard card is built in.** It is served by the integration and loaded
+  automatically, so there is no resource to add. If you added the card as a
+  dashboard resource before, you can remove that resource; it is harmless if left.
+- **The card configures itself.** It only needs the room's thermostat. Stages and
+  the aggressiveness control are read from the thermostat, and the card has a
+  visual editor. A hand-written `triggers:` list still works and takes priority.
+- **A dehumidifier needs a humidity sensor.** Adding one to a room without a
+  humidity sensor is now refused with an explanation.
+
+For automations, the *Manual Control* sensor gains an
+`automated_control_resumes_at` timestamp, and the thermostat a `stages` attribute
+describing every stage.
 
 ---
 
@@ -190,9 +224,12 @@ If you choose not to use global presets, a second step lets you configure this r
 
 ### Adding Devices
 
-Devices are added after a room is created via the **Configure** button on the integration card (or from the device page).
+Each device a room controls is added from the integration page: open *Settings →
+Devices & services → Climate Comfort*, find the room, and choose **Add device**.
+To change or remove one later, use *Reconfigure* or *Delete* in the menu beside
+that device.
 
-#### Step 1 — Identity
+#### Page 1 — Identity
 
 | Field | Description |
 |---|---|
@@ -200,14 +237,21 @@ Devices are added after a room is created via the **Configure** button on the in
 | **Entity** | The `switch`, `climate`, `fan`, or `input_boolean` entity to control |
 | **Role** | `Heating`, `Cooling`, or `Dehumidifier` |
 
-#### Step 2a — Temperature thresholds (Heating / Cooling)
+A dehumidifier can only be added to a room that has a humidity sensor.
+
+#### Page 2 — Settings
+
+Only the settings that apply to the entity and role you chose are shown.
+
+**Heating and cooling devices**
 
 | Field | Description |
 |---|---|
-| **Activate offset** | How far beyond the comfort zone boundary before this device turns on. `0` = exactly at the boundary. `3` = 3 °C past it. |
+| **Activation point** | Where this device joins in after the room leaves the comfort zone. `0` is at the edge of the zone; each further point is one step of the active aggressiveness profile's spacing. |
 | **Hysteresis** | How far the temperature must recover past the activation point before the device turns off. Prevents rapid cycling. |
+| **Use for emergency safety limits** | Lets this device run if the room crosses the global minimum or maximum temperature. |
 
-#### Step 2b — Humidity thresholds (Dehumidifier)
+**Dehumidifiers**
 
 | Field | Description |
 |---|---|
@@ -215,12 +259,13 @@ Devices are added after a room is created via the **Configure** button on the in
 | **Deactivate hysteresis** | Humidity must drop this many percent below the threshold before switching off |
 | **Only run when not heating/cooling** | Suppress dehumidification while temperature control is active |
 
-#### Step 3 — Climate mode (climate entities only)
+**Climate entities, in any role**
 
 | Field | Description |
 |---|---|
 | **HVAC mode when active** | The mode set on the climate entity when this stage activates (list populated from the entity's own supported modes) |
 | **Target overshoot** | Optional offset applied to the device's temperature setpoint to ensure it actually runs — see [Target Temp Offset](#target-temp-offset) |
+| **Fan speed / swing direction** | Optional — see [Fan Speed and Swing Direction](#fan-speed-and-swing-direction) |
 
 ---
 
@@ -486,44 +531,34 @@ A good end-user dashboard for Climate Comfort should expose three layers clearly
 
 The integration already exposes useful entities and attributes for this without needing a bespoke frontend card. A ready-to-import example is also included at `examples/lovelace/climate-comfort-dashboard.yaml`.
 
-### Prototype custom card
+### Dashboard card
 
-A first Conservatory-focused custom card prototype is included at:
+Climate Comfort includes its own card. It is installed and loaded with the
+integration — there is nothing to download and no dashboard resource to add.
 
-- `frontend/climate-comfort-card.js`
-
-It is a plain JavaScript Lovelace custom card with no build step. The intended deployment path is to publish the file in GitHub and add it to Home Assistant as a Lovelace resource, for example via jsDelivr:
-
-```text
-https://cdn.jsdelivr.net/gh/bjscuba135/climate-comfort@main/frontend/climate-comfort-card.js
-```
-
-Example configuration:
+Add it from the card picker (search for *Climate Comfort*), or from a room
+thermostat's entity, where Home Assistant suggests it. The visual editor asks
+only for the room:
 
 ```yaml
 - type: custom:climate-comfort-card
   entity: climate.conservatory
-  aggressiveness_entity: select.conservatory_aggressiveness
-  triggers:
-    - entity: binary_sensor.conservatory_aircon_heat_10_degc
-      kind: heating
-      label: Aircon heat
-    - entity: binary_sensor.conservatory_radiator_5_degc
-      kind: heating
-      label: Radiator
-    - entity: binary_sensor.conservatory_aircon_fan_0_degc
-      kind: cooling
-      label: Aircon fan
-    - entity: binary_sensor.conservatory_aircon_cool_3_degc
-      kind: cooling
-      label: Aircon cool
-    - entity: binary_sensor.conservatory_fan_10_degc
-      kind: cooling
-      label: Extractor fan
-    - entity: binary_sensor.conservatory_aircon_dry_65
-      kind: humidity
-      label: Dry mode
 ```
+
+The card reads the room's stages and its aggressiveness control from the
+thermostat, so they follow any device you add, change or remove.
+
+Optional settings:
+
+| Option | Description |
+|---|---|
+| `name` | Shown in place of the room name |
+| `show_details` | Set to `false` to hide the list of stages |
+| `aggressiveness_entity` | Use a different select entity for the aggressiveness buttons |
+| `triggers` | A hand-written list of stage sensors (`entity`, `kind`, `label`). When present it replaces the automatic stages; cards configured before 2.0 keep working this way. |
+
+If the card does not appear after updating, refresh the browser once so it
+picks up the new file.
 
 ### Recommended layout
 
@@ -623,17 +658,3 @@ cards:
 - Put `Aggressiveness` near `Comfort Zone` so users understand both are tuning controls.
 - Treat diagnostics as a collapsible or lower-priority section.
 - Surface the reset button only where manual holds are likely to confuse people.
-
-### If you want a richer custom visual
-
-The next step would be a dedicated Lovelace card that groups:
-
-- current room temperature
-- active preset
-- effective comfort zone
-- lower / upper thresholds
-- active devices
-- manual hold warning banner
-- inline chips for mode selection and aggressiveness
-
-That would likely be best as a small custom card or a decluttering-card/button-card template package rather than adding more integration entities.

@@ -10,9 +10,9 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from . import get_device_configs
 from .climate import _Device
 from .const import (
-    CONF_DEVICES,
     DOMAIN,
     ROLE_COOLING,
     ROLE_DEHUMIDIFY,
@@ -58,7 +58,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    devices_data = entry.options.get(CONF_DEVICES, [])
+    devices_data = get_device_configs(entry)
     device_sensors = [
         ControlledDeviceSensor(entry, _Device(d, idx))
         for idx, d in enumerate(devices_data)

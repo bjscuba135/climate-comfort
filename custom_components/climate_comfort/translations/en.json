@@ -3,11 +3,15 @@
     "step": {
       "user": {
         "title": "Climate Comfort",
-        "description": "What would you like to set up?"
+        "description": "What would you like to set up?",
+        "menu_options": {
+          "room": "Room thermostat",
+          "global_defaults": "Global defaults (shared preset temperatures)"
+        }
       },
       "room": {
         "title": "Room Thermostat",
-        "description": "Create a multi-stage thermostat for one room. Global Defaults must be configured first; modes and profiles are inherited from there. Devices are added after creation via the Configure button.",
+        "description": "Create a multi-stage thermostat for one room. Add the devices it controls afterwards with **Add device** on the integration page.",
         "data": {
           "name": "Room name",
           "temperature_sensor": "Temperature sensor",
@@ -19,7 +23,7 @@
         "data_description": {
           "temperature_sensor": "The sensor whose reading drives all heating and cooling decisions for this room.",
           "humidity_sensor": "Optional. Only needed if you are adding a dehumidifier device to this room.",
-          "comfort_zone": "Base half-width of the dead zone either side of the mode target temperature (\u00b1\u00b0C). The active profile scales this into the effective comfort zone.",
+          "comfort_zone": "Base half-width of the dead zone either side of the mode target temperature (±°C). The active profile scales this into the effective comfort zone.",
           "house_mode_entity": "Optional. A select entity whose state chooses the active mode for this room. Valid presets are Away, Sleep, Home, Comfort, Eco, Activity, and Boost when enabled. The House Mode entity created by the Global Defaults entry works here.",
           "manual_hold_hours": "When any controlled device is changed by someone other than this integration, automated control of that device is suspended for this many hours. 0 = disabled."
         }
@@ -53,7 +57,7 @@
           "floor_names": "Floor / zone selectors"
         },
         "data_description": {
-          "comfort_zone": "Base half-width of the dead zone (\u00b1\u00b0C). New rooms start with this value; the active profile scales it.",
+          "comfort_zone": "Base half-width of the dead zone (±°C). New rooms start with this value; the active profile scales it.",
           "default_profile": "Fallback response profile used when a mode does not specify one.",
           "minimum_temperature": "Global lower safety limit. If a room falls below this, emergency-enabled heating devices may activate regardless of normal staging.",
           "maximum_temperature": "Global upper safety limit. If a room rises above this, emergency-enabled cooling devices may activate regardless of normal staging.",
@@ -68,20 +72,20 @@
           "mode_warmup_profile": "Response profile to use in Comfort preset.",
           "mode_cooldown_profile": "Response profile to use in Eco preset.",
           "profile_relaxed_comfort_multiplier": "Scales the base comfort zone for the Relaxed profile. Higher values allow more drift.",
-          "profile_relaxed_point_spacing": "How many \u00b0C each device activation point represents in the Relaxed profile.",
+          "profile_relaxed_point_spacing": "How many °C each device activation point represents in the Relaxed profile.",
           "profile_balanced_comfort_multiplier": "Scales the base comfort zone for the Balanced profile.",
-          "profile_balanced_point_spacing": "How many \u00b0C each device activation point represents in the Balanced profile.",
+          "profile_balanced_point_spacing": "How many °C each device activation point represents in the Balanced profile.",
           "profile_responsive_comfort_multiplier": "Scales the base comfort zone for the Responsive profile. Lower values hold the room closer to target.",
-          "profile_responsive_point_spacing": "How many \u00b0C each device activation point represents in the Responsive profile.",
+          "profile_responsive_point_spacing": "How many °C each device activation point represents in the Responsive profile.",
           "profile_aggressive_comfort_multiplier": "Scales the base comfort zone for the Aggressive profile. Lower values make the system respond sooner.",
-          "profile_aggressive_point_spacing": "How many \u00b0C each device activation point represents in the Aggressive profile. Lower values make stages closer together.",
+          "profile_aggressive_point_spacing": "How many °C each device activation point represents in the Aggressive profile. Lower values make stages closer together.",
           "floor_names": "Each entry creates a mode selector on the Global Settings device, such as Ground Floor or First Floor. Rooms choose which selector to follow via their house / floor mode entity setting."
         }
       }
     },
     "abort": {
-      "global_already_configured": "Global defaults already exist \u2014 edit them via the Configure button.",
-      "global_defaults_required": "Create Global Defaults before adding rooms. Modes, profiles, and safety limits are required shared setup.",
+      "global_already_configured": "Global defaults already exist — edit them via the Configure button.",
+      "global_defaults_required": "Create the Global Defaults entry first. Rooms take their preset temperatures and safety limits from it.",
       "already_configured": "A room with this name already exists. Use a different name or edit the existing room."
     }
   },
@@ -90,98 +94,15 @@
       "init": {
         "title": "Manage Room",
         "menu_options": {
-          "add_device": "Add a device",
-          "edit_device_select": "Edit a device",
-          "remove_device": "Remove a device",
-          "edit_settings": "Edit room settings",
-          "finish": "Save & close",
-          "edit_room_aggressiveness": "Edit room aggressiveness"
-        }
-      },
-      "add_device": {
-        "title": "Add Device \u2014 Identity",
-        "data": {
-          "label": "Name",
-          "entity_id": "Entity",
-          "role": "Device type"
+          "edit_settings": "Room settings",
+          "edit_room_aggressiveness": "Room aggressiveness",
+          "finish": "Close"
         },
-        "data_description": {
-          "label": "A short descriptive name shown on the device page, e.g. Radiator, AirCon, or Dehumidifier.",
-          "entity_id": "The switch, climate, or fan entity this controller will turn on and off.",
-          "role": "Heating activates when the room is too cold. Cooling activates when the room is too hot. Dehumidify activates from humidity logic, independent of temperature activation points."
-        }
-      },
-      "edit_device_select": {
-        "title": "Edit Device \u2014 Select",
-        "data": {
-          "device_to_edit": "Which device?"
-        }
-      },
-      "edit_device": {
-        "title": "Edit Device \u2014 Identity",
-        "data": {
-          "label": "Name",
-          "entity_id": "Entity",
-          "role": "Device type"
-        },
-        "data_description": {
-          "label": "A short descriptive name shown on the device page.",
-          "entity_id": "The switch, climate, or fan entity this controller will turn on and off.",
-          "role": "Heating activates when the room is too cold. Cooling activates when the room is too hot. Dehumidify activates from humidity logic."
-        }
-      },
-      "device_temp_config": {
-        "title": "Device \u2014 Temperature Activation",
-        "data": {
-          "activation_point": "Activation point",
-          "deactivate_offset": "Hysteresis (\u00b0C)",
-          "emergency_enabled": "Use for emergency safety limits"
-        },
-        "data_description": {
-          "activation_point": "Where this device joins in after the room leaves the comfort zone. Heating devices choose -5 to 0; cooling devices choose 0 to 5. The active profile controls how many degrees each point represents.",
-          "deactivate_offset": "How far the temperature must recover past the activation point before this device turns off. Prevents rapid on/off cycling.",
-          "emergency_enabled": "When enabled, this device may be used if the room crosses the global minimum or maximum temperature safety limit."
-        }
-      },
-      "device_humidity_config": {
-        "title": "Dehumidify \u2014 Humidity Thresholds",
-        "data": {
-          "humidity_threshold": "Activate above (% RH)",
-          "humidity_hysteresis": "Deactivate hysteresis (% RH)",
-          "dehumidify_only_when_idle": "Only run when not heating or cooling"
-        },
-        "data_description": {
-          "humidity_threshold": "The relative humidity level at which this device switches on.",
-          "humidity_hysteresis": "Humidity must drop this many percent below the threshold before the device switches off.",
-          "dehumidify_only_when_idle": "When on, dehumidification is suppressed while heating or cooling is active."
-        }
-      },
-      "device_climate_mode": {
-        "title": "Climate Entity \u2014 Mode & Target",
-        "data": {
-          "hvac_mode_on": "HVAC mode when active",
-          "target_temp_offset": "Target overshoot (\u00b0C)",
-          "fan_mode": "Fan speed when active",
-          "swing_mode": "Vertical swing direction when active",
-          "swing_horizontal_mode": "Horizontal swing direction when active"
-        },
-        "data_description": {
-          "hvac_mode_on": "**HVAC mode:** the mode set on this climate entity when the controller activates it. The list is populated from the device's own supported modes.",
-          "target_temp_offset": "**Target overshoot:** an optional offset to ensure the device actually runs rather than sitting idle because its previous setpoint was already satisfied. **Heating devices** target *setpoint + offset* \u00b0C. **Cooling devices** target *setpoint \u2212 offset* \u00b0C. Set to 0 to target exactly the room setpoint.",
-          "fan_mode": "**Fan speed:** optional. Applied when this device is switched on, after the HVAC mode above. The list comes from the device's own supported fan modes. Choose *Leave unchanged* to let the device keep whatever speed it was last set to.",
-          "swing_mode": "**Vertical swing:** optional. The up/down louvre direction, applied when the device is switched on. The list comes from the device's own supported swing modes. Choose *Leave unchanged* to leave it alone.",
-          "swing_horizontal_mode": "**Horizontal swing:** optional. The left/right louvre direction. Home Assistant treats this as a separate setting from vertical swing, so a device may offer one, both or neither. Choose *Leave unchanged* to leave it alone."
-        }
-      },
-      "remove_device": {
-        "title": "Remove Device",
-        "data": {
-          "device_to_remove": "Device to remove"
-        }
+        "description": "Devices are added, changed and removed from the integration page, not here."
       },
       "edit_settings": {
         "title": "Room Settings",
-        "description": "Sensor and zone settings for this room. Modes and profiles are inherited from Global Defaults. {global_summary}",
+        "description": "Sensor and zone settings for this room. Preset temperatures come from Global Defaults unless this room has its own: currently Home {home} °C, Comfort {comfort} °C, Eco {eco} °C.",
         "data": {
           "temperature_sensor": "Temperature sensor",
           "humidity_sensor": "Humidity sensor",
@@ -193,7 +114,7 @@
         "data_description": {
           "temperature_sensor": "Drives all heating and cooling decisions for this room.",
           "humidity_sensor": "Optional. Required only if a dehumidify device is configured for this room.",
-          "comfort_zone": "Base comfort zone width (\u00b1\u00b0C). The active profile scales this to create the effective comfort zone.",
+          "comfort_zone": "Base comfort zone width (±°C). The active profile scales this to create the effective comfort zone.",
           "house_mode_entity": "Optional. A select entity whose state chooses the active mode for this room. Valid presets are Away, Sleep, Home, Comfort, Eco, Activity, and Boost when enabled.",
           "manual_hold_hours": "When any controlled device is changed manually or by another automation, automated control of that device is suspended for this many hours. 0 = disabled.",
           "manual_hold_confirm_seconds": "How long a device state mismatch must persist before it is treated as a manual override. Increase this if holds trigger too easily because devices report state slowly."
@@ -207,11 +128,11 @@
           "edit_global_modes": "Mode temperatures",
           "edit_global_profiles": "Aggressiveness profiles",
           "edit_global_floors": "Floor mode selectors",
-          "finish": "Save & close"
+          "finish": "Close"
         }
       },
       "edit_global_general": {
-        "title": "Global Defaults \u2014 General limits",
+        "title": "Global Defaults — General limits",
         "description": "Shared comfort zone and safety temperature bounds.",
         "data": {
           "comfort_zone": "Default comfort zone width",
@@ -219,13 +140,13 @@
           "maximum_temperature": "Emergency maximum temperature"
         },
         "data_description": {
-          "comfort_zone": "Half-width of the dead zone (\u00b1\u00b0C). Applied as the starting value for new rooms.",
+          "comfort_zone": "Half-width of the dead zone (±°C). Applied as the starting value for new rooms.",
           "minimum_temperature": "Lowest safe temperature. Devices marked as emergency enabled can ignore Away protection to prevent the room dropping below this.",
           "maximum_temperature": "Highest safe temperature. Devices marked as emergency enabled can ignore Away protection to prevent the room rising above this."
         }
       },
       "edit_global_modes": {
-        "title": "Global Defaults \u2014 Mode temperatures",
+        "title": "Global Defaults — Mode temperatures",
         "description": "Target temperatures, aggressiveness profile, and availability used by each house mode. Away always uses the configured minimum and maximum safety temperatures.",
         "data": {
           "mode_away_profile": "Away aggressiveness",
@@ -263,7 +184,7 @@
         }
       },
       "edit_global_profiles": {
-        "title": "Global Defaults \u2014 Aggressiveness profiles",
+        "title": "Global Defaults — Aggressiveness profiles",
         "description": "Choose a profile group to edit.",
         "menu_options": {
           "edit_global_profiles_default": "Default profile",
@@ -275,7 +196,7 @@
         }
       },
       "edit_global_floors": {
-        "title": "Global Defaults \u2014 Floor mode selectors",
+        "title": "Global Defaults — Floor mode selectors",
         "description": "Create optional per-floor mode selectors alongside the whole-house mode selector.",
         "data": {
           "floor_names": "Floor / zone selectors"
@@ -297,7 +218,7 @@
         }
       },
       "edit_global_profiles_default": {
-        "title": "Global Defaults \u2014 Default profile",
+        "title": "Global Defaults — Default profile",
         "description": "Edit only this profile group.",
         "data": {
           "default_profile": "Default aggressiveness"
@@ -307,7 +228,7 @@
         }
       },
       "edit_global_profiles_relaxed": {
-        "title": "Global Defaults \u2014 Relaxed profile",
+        "title": "Global Defaults — Relaxed profile",
         "description": "Edit only this profile group.",
         "data": {
           "profile_relaxed_comfort_multiplier": "Comfort zone multiplier",
@@ -319,7 +240,7 @@
         }
       },
       "edit_global_profiles_balanced": {
-        "title": "Global Defaults \u2014 Balanced profile",
+        "title": "Global Defaults — Balanced profile",
         "description": "Edit only this profile group.",
         "data": {
           "profile_balanced_comfort_multiplier": "Comfort zone multiplier",
@@ -331,7 +252,7 @@
         }
       },
       "edit_global_profiles_responsive": {
-        "title": "Global Defaults \u2014 Responsive profile",
+        "title": "Global Defaults — Responsive profile",
         "description": "Edit only this profile group.",
         "data": {
           "profile_responsive_comfort_multiplier": "Comfort zone multiplier",
@@ -343,7 +264,7 @@
         }
       },
       "edit_global_profiles_aggressive": {
-        "title": "Global Defaults \u2014 Aggressive profile",
+        "title": "Global Defaults — Aggressive profile",
         "description": "Edit only this profile group.",
         "data": {
           "profile_aggressive_comfort_multiplier": "Comfort zone multiplier",
@@ -355,7 +276,7 @@
         }
       },
       "edit_room_aggressiveness_default": {
-        "title": "Room \u2014 Default profile",
+        "title": "Room — Default profile",
         "description": "Edit only this profile group.",
         "data": {
           "default_profile": "Default aggressiveness"
@@ -365,7 +286,7 @@
         }
       },
       "edit_room_aggressiveness_relaxed": {
-        "title": "Room \u2014 Relaxed profile",
+        "title": "Room — Relaxed profile",
         "description": "Edit only this profile group.",
         "data": {
           "profile_relaxed_comfort_multiplier": "Comfort zone multiplier",
@@ -377,7 +298,7 @@
         }
       },
       "edit_room_aggressiveness_balanced": {
-        "title": "Room \u2014 Balanced profile",
+        "title": "Room — Balanced profile",
         "description": "Edit only this profile group.",
         "data": {
           "profile_balanced_comfort_multiplier": "Comfort zone multiplier",
@@ -389,7 +310,7 @@
         }
       },
       "edit_room_aggressiveness_responsive": {
-        "title": "Room \u2014 Responsive profile",
+        "title": "Room — Responsive profile",
         "description": "Edit only this profile group.",
         "data": {
           "profile_responsive_comfort_multiplier": "Comfort zone multiplier",
@@ -401,7 +322,7 @@
         }
       },
       "edit_room_aggressiveness_aggressive": {
-        "title": "Room \u2014 Aggressive profile",
+        "title": "Room — Aggressive profile",
         "description": "Edit only this profile group.",
         "data": {
           "profile_aggressive_comfort_multiplier": "Comfort zone multiplier",
@@ -411,6 +332,96 @@
           "profile_aggressive_comfort_multiplier": "Lowest comfort-zone multiplier for fastest reaction.",
           "profile_aggressive_point_spacing": "Smallest staged activation spacing for fastest escalation."
         }
+      }
+    }
+  },
+  "config_subentries": {
+    "device": {
+      "entry_type": "Device",
+      "initiate_flow": {
+        "user": "Add device",
+        "reconfigure": "Change device"
+      },
+      "step": {
+        "user": {
+          "title": "Add device",
+          "data": {
+            "label": "Name",
+            "entity_id": "Entity",
+            "role": "Device type"
+          },
+          "data_description": {
+            "label": "A short descriptive name shown on the device page, e.g. Radiator, AirCon, or Dehumidifier.",
+            "entity_id": "The switch, climate, or fan entity this controller will turn on and off.",
+            "role": "Heating activates when the room is too cold. Cooling activates when the room is too hot. Dehumidify activates from humidity logic, independent of temperature activation points."
+          }
+        },
+        "reconfigure": {
+          "title": "Change device",
+          "data": {
+            "label": "Name",
+            "entity_id": "Entity",
+            "role": "Device type"
+          },
+          "data_description": {
+            "label": "A short descriptive name shown on the device page, e.g. Radiator, AirCon, or Dehumidifier.",
+            "entity_id": "The switch, climate, or fan entity this controller will turn on and off.",
+            "role": "Heating activates when the room is too cold. Cooling activates when the room is too hot. Dehumidify activates from humidity logic, independent of temperature activation points."
+          }
+        },
+        "settings": {
+          "title": "Device settings",
+          "description": "Settings for **{label}** (`{entity_id}`). Only the settings that apply to this kind of device are shown.",
+          "data": {
+            "activation_point": "Activation point",
+            "deactivate_offset": "Hysteresis (°C)",
+            "emergency_enabled": "Use for emergency safety limits",
+            "humidity_threshold": "Activate above (% RH)",
+            "humidity_hysteresis": "Deactivate hysteresis (% RH)",
+            "dehumidify_only_when_idle": "Only run when not heating or cooling",
+            "hvac_mode_on": "HVAC mode when active",
+            "target_temp_offset": "Target overshoot (°C)",
+            "fan_mode": "Fan speed when active",
+            "swing_mode": "Vertical swing direction when active",
+            "swing_horizontal_mode": "Horizontal swing direction when active"
+          },
+          "data_description": {
+            "activation_point": "Where this device joins in after the room leaves the comfort zone. Heating devices choose -5 to 0; cooling devices choose 0 to 5. The active profile controls how many degrees each point represents.",
+            "deactivate_offset": "How far the temperature must recover past the activation point before this device turns off. Prevents rapid on/off cycling.",
+            "emergency_enabled": "When enabled, this device may be used if the room crosses the global minimum or maximum temperature safety limit.",
+            "humidity_threshold": "The relative humidity level at which this device switches on.",
+            "humidity_hysteresis": "Humidity must drop this many percent below the threshold before the device switches off.",
+            "dehumidify_only_when_idle": "When on, dehumidification is suppressed while heating or cooling is active.",
+            "hvac_mode_on": "**HVAC mode:** the mode set on this climate entity when the controller activates it. The list is populated from the device's own supported modes.",
+            "target_temp_offset": "**Target overshoot:** an optional offset to ensure the device actually runs rather than sitting idle because its previous setpoint was already satisfied. **Heating devices** target *setpoint + offset* °C. **Cooling devices** target *setpoint − offset* °C. Set to 0 to target exactly the room setpoint.",
+            "fan_mode": "**Fan speed:** optional. Applied when this device is switched on, after the HVAC mode above. The list comes from the device's own supported fan modes. Choose *Leave unchanged* to let the device keep whatever speed it was last set to.",
+            "swing_mode": "**Vertical swing:** optional. The up/down louvre direction, applied when the device is switched on. The list comes from the device's own supported swing modes. Choose *Leave unchanged* to leave it alone.",
+            "swing_horizontal_mode": "**Horizontal swing:** optional. The left/right louvre direction. Home Assistant treats this as a separate setting from vertical swing, so a device may offer one, both or neither. Choose *Leave unchanged* to leave it alone."
+          }
+        }
+      },
+      "error": {
+        "humidity_sensor_required": "This room has no humidity sensor. Add one in the room's settings before adding a dehumidifier."
+      },
+      "abort": {
+        "reconfigure_successful": "Device updated."
+      }
+    }
+  },
+  "selector": {
+    "role": {
+      "options": {
+        "heating": "Heating",
+        "cooling": "Cooling",
+        "dehumidify": "Dehumidifier"
+      }
+    },
+    "profile": {
+      "options": {
+        "relaxed": "Relaxed",
+        "balanced": "Balanced",
+        "responsive": "Responsive",
+        "aggressive": "Aggressive"
       }
     }
   }

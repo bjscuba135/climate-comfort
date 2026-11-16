@@ -8,10 +8,9 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from . import async_update_entry_live
+from . import async_update_entry_live, get_device_configs
 from .const import (
     CONF_DEVICE_ROLE,
-    CONF_DEVICES,
     CONF_ENTRY_TYPE,
     CONF_MODE_ACTIVITY,
     CONF_MODE_AWAY,
@@ -54,7 +53,7 @@ async def async_setup_entry(
         entities.append(gp_switch)
 
     # Dehumidification toggle — only when at least one dehumidifier is configured
-    devices = entry.options.get(CONF_DEVICES, [])
+    devices = get_device_configs(entry)
     if any(d.get(CONF_DEVICE_ROLE) == ROLE_DEHUMIDIFY for d in devices):
         dh_switch = DehumidifySwitch(entry)
         hass.data[DOMAIN][entry.entry_id]["dehumidify_switch"] = dh_switch
