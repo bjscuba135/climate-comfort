@@ -913,6 +913,8 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         for entity_id in cleared:
             self._mark_integration_touch(entity_id)
         await self._evaluate_devices()
+        # Update the hold indicators even when no evaluation could run.
+        self._sync_binary_sensors()
         self.async_write_ha_state()
         return cleared
 
@@ -1013,6 +1015,28 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
                 attrs["manual_holds"] = hold_info
 
         return attrs
+
+    def manual_control_attributes(self) -> dict[str, Any]:
+        """Return concise metadata for the room-level manual-control UI."""
+        if not self._manual_holds:
+            return {}
+
+        now = dt_util.utcnow()
+        labels = {device.entity_id: device.label for device in self._devices}
+        holds: list[tuple[str, int]] = []
+        for entity_id, hold in self._manual_holds.items():
+            remaining_seconds = (hold["since"] + timedelta(hours=self._hold_hours) - now).total_seconds()
+            if remaining_seconds > 0:
+                holds.append((labels.get(entity_id, entity_id), max(1, int(remaining_seconds / 60))))
+        if not holds:
+            return {}
+
+        next_remaining = min(minutes for _, minutes in holds)
+        return {
+            "manual_hold_devices": [label for label, _ in holds],
+            "automated_control_resumes_in": f"{next_remaining} min",
+            "manual_control_summary": f"Manual control — resumes in {next_remaining} min",
+        }
 
     # ------------------------------------------------------------------
     # ------------------------------------------------------------------
@@ -1239,6 +1263,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         mode_allows_cooling = self._attr_hvac_mode in (HVACMode.COOL, HVACMode.HEAT_COOL)
         any_heating = False
         any_cooling = False
+        any_dehumidifying = False
 
         # ── Separate devices by type ──────────────────────────────────────
         # Climate entities with the same entity_id form an escalation group.
@@ -1366,11 +1391,16 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             elif current_humidity <= deactivate_at and device.is_active:
                 await self._deactivate_or_release_device(device)
 
+            if device.is_active:
+                any_dehumidifying = True
+
         # ── Update HVAC action ────────────────────────────────────────────
         if any_heating:
             self._attr_hvac_action = HVACAction.HEATING
         elif any_cooling:
             self._attr_hvac_action = HVACAction.COOLING
+        elif any_dehumidifying:
+            self._attr_hvac_action = HVACAction.DRYING
         else:
             self._attr_hvac_action = HVACAction.IDLE
 
@@ -1637,3 +1667,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
                 self._entry.data.get(CONF_USE_GLOBAL_PRESETS, False)
             )
             gp_switch.async_write_ha_state()
+        for entity_key in ("manual_control_sensor", "reset_manual_control_button"):
+            entity = entry_data.get(entity_key)
+            if entity and entity.hass is not None:
+                entity.async_write_ha_state()

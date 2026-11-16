@@ -82,6 +82,7 @@ class _HVACAction(str, enum.Enum):
     IDLE = "idle"
     HEATING = "heating"
     COOLING = "cooling"
+    DRYING = "drying"
 
 
 class _ClimateEntityFeature(enum.IntFlag):

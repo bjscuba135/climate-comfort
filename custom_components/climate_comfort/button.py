@@ -18,7 +18,9 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    async_add_entities([ResetManualControlButton(entry)])
+    button = ResetManualControlButton(entry)
+    hass.data[DOMAIN][entry.entry_id]["reset_manual_control_button"] = button
+    async_add_entities([button])
 
 
 class ResetManualControlButton(ButtonEntity):
@@ -42,6 +44,12 @@ class ResetManualControlButton(ButtonEntity):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
         )
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Show the active manual-control hold and its remaining duration."""
+        climate = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {}).get("climate_entity")
+        return climate.manual_control_attributes() if climate else {}
 
     async def async_press(self) -> None:
         entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
