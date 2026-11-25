@@ -56,6 +56,77 @@ class _BinarySensorEntity(_Entity):
     pass
 
 
+class _SelectEntity(_Entity):
+    _attr_current_option = None
+    _attr_options: list = []
+
+    @property
+    def current_option(self):
+        return self._attr_current_option
+
+    @property
+    def options(self):
+        return self._attr_options
+
+
+class _SensorEntity(_Entity):
+    pass
+
+
+class _SwitchEntity(_Entity):
+    pass
+
+
+class _SensorDeviceClass(str, enum.Enum):
+    TIMESTAMP = "timestamp"
+
+
+class _Store:
+    """In-memory storage; ``saved`` holds what would be written."""
+
+    def __init__(self, hass, version, key) -> None:
+        self.key = key
+        self.saved = None
+
+    async def async_load(self):
+        return self.saved
+
+    def async_delay_save(self, data_func, delay=0) -> None:
+        self.saved = data_func()
+
+
+_dispatched: list = []
+_dispatch_targets: list = []
+
+
+def _dispatcher_connect(hass, signal, target):
+    entry = (signal, target)
+    _dispatch_targets.append(entry)
+
+    def _disconnect() -> None:
+        if entry in _dispatch_targets:
+            _dispatch_targets.remove(entry)
+
+    return _disconnect
+
+
+def _dispatcher_send(hass, signal, *args) -> None:
+    _dispatched.append((signal, args))
+    for wanted, target in list(_dispatch_targets):
+        if wanted == signal:
+            target(*args)
+
+
+def _track_point(hass, action, when):
+    record = {"when": when, "action": action, "cancelled": False}
+    hass.timers.append(record)
+
+    def _cancel() -> None:
+        record["cancelled"] = True
+
+    return _cancel
+
+
 class _RestoreEntity(_Entity):
     last_state = None
     last_extra_data = None
@@ -151,8 +222,14 @@ def install_stubs() -> None:
     _module("homeassistant.util")
     _module(
         "homeassistant.util.dt",
+        UTC=timezone.utc,
         utcnow=lambda: datetime.now(timezone.utc),
+        now=lambda: datetime.now(timezone.utc),
         parse_datetime=lambda value: datetime.fromisoformat(value),
+        get_default_time_zone=lambda: timezone.utc,
+        start_of_local_day=lambda day=None: datetime.combine(
+            day or datetime.now(timezone.utc).date(), datetime.min.time(), tzinfo=timezone.utc
+        ),
     )
     _module("homeassistant.components")
     _module(
@@ -170,6 +247,13 @@ def install_stubs() -> None:
         BinarySensorDeviceClass=_BinarySensorDeviceClass,
         BinarySensorEntity=_BinarySensorEntity,
     )
+    _module("homeassistant.components.select", SelectEntity=_SelectEntity)
+    _module(
+        "homeassistant.components.sensor",
+        SensorDeviceClass=_SensorDeviceClass,
+        SensorEntity=_SensorEntity,
+    )
+    _module("homeassistant.components.switch", SwitchEntity=_SwitchEntity)
     _module("homeassistant.config_entries", ConfigEntry=object, ConfigSubentry=ConfigSubentry)
     _module(
         "homeassistant.const",
@@ -180,9 +264,19 @@ def install_stubs() -> None:
         EntityCategory=_EntityCategory,
     )
     _module("homeassistant.core", HomeAssistant=object, callback=_passthrough)
-    _module("homeassistant.exceptions", HomeAssistantError=Exception)
+    _module(
+        "homeassistant.exceptions",
+        HomeAssistantError=Exception,
+        ServiceValidationError=ValueError,
+    )
     _module("homeassistant.helpers")
     _module("homeassistant.helpers.device_registry", DeviceInfo=dict)
+    _module(
+        "homeassistant.helpers.dispatcher",
+        async_dispatcher_connect=_dispatcher_connect,
+        async_dispatcher_send=_dispatcher_send,
+    )
+    _module("homeassistant.helpers.storage", Store=_Store)
     _module("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
     _module(
         "homeassistant.helpers.entity_registry",
@@ -195,6 +289,7 @@ def install_stubs() -> None:
     _module(
         "homeassistant.helpers.event",
         async_call_later=_call_later,
+        async_track_point_in_utc_time=_track_point,
         async_track_state_change_event=_track,
         async_track_time_interval=_track,
     )

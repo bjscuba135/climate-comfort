@@ -72,6 +72,12 @@ CONF_DEVICE_SWING_MODE = "swing_mode"
 CONF_DEVICE_SWING_HORIZONTAL_MODE = "swing_horizontal_mode"
 # Sentinel for the "don't manage this" choice in the config flow dropdowns.
 SECONDARY_UNSET = "__unset__"
+# Minimum run and rest times, in minutes, for any device. Compressors (air
+# conditioners, heat pumps, dehumidifiers) are damaged by short cycling, and
+# the temperature hysteresis alone does not bound how often a device switches.
+# 0 disables the limit.
+CONF_DEVICE_MIN_ON_MINUTES = "min_on_minutes"
+CONF_DEVICE_MIN_OFF_MINUTES = "min_off_minutes"
 # Dehumidifier-specific
 CONF_DEVICE_HUMIDITY_THRESHOLD = "humidity_threshold"
 CONF_DEVICE_HUMIDITY_HYSTERESIS = "humidity_hysteresis"
@@ -154,6 +160,8 @@ CONF_MANUAL_HOLD_CONFIRM_SECONDS = "manual_hold_confirm_seconds"
 DEFAULT_DEACTIVATE_OFFSET = 0.5
 DEFAULT_HUMIDITY_THRESHOLD = 65.0
 DEFAULT_HUMIDITY_HYSTERESIS = 5.0
+DEFAULT_MIN_ON_MINUTES = 0
+DEFAULT_MIN_OFF_MINUTES = 0
 
 # When True the room inherits preset temperatures from the Global Defaults entry
 # instead of its own local values.
@@ -182,3 +190,24 @@ ATTR_UPPER_THRESHOLD = "upper_threshold"
 ATTR_EFFECTIVE_SETPOINT = "effective_setpoint"
 ATTR_ACTIVE_DEVICES = "active_devices"
 ATTR_CURRENT_HUMIDITY = "current_humidity"
+
+# ── Schedules ────────────────────────────────────────────────────────────────
+# Global Defaults settings shared by every schedule. The schedules themselves
+# are kept in Home Assistant's storage (see scheduler.py), not in the entries.
+CONF_SCHEDULE_WORKDAY_ENTITY = "schedule_workday_entity"
+CONF_SCHEDULE_CALENDAR_ENTITY = "schedule_calendar_entity"
+CONF_SCHEDULE_DAY_START = "schedule_day_start"
+DEFAULT_SCHEDULE_DAY_START = "00:00:00"
+# Where each entry keeps its schedule controllers in hass.data.
+DATA_SCHEDULE = "schedule"
+DATA_HOUSE_SCHEDULE = "house_schedule"
+DATA_FLOOR_SCHEDULES = "floor_schedules"
+# Sent when a mode selector is set to the value it already had by a schedule,
+# so rooms following it drop a preset someone chose by hand.
+SIGNAL_MODE_REASSERTED = f"{DOMAIN}_mode_reasserted"
+
+
+def floor_slug(floor_name: str) -> str:
+    import re
+
+    return re.sub(r"[^a-z0-9]+", "_", floor_name.lower()).strip("_")

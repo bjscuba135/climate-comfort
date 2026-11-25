@@ -1,0 +1,42 @@
+set_schedule:
+  fields:
+    entity_id:
+      required: true
+      example: climate.lounge
+      selector:
+        entity:
+          integration: comfort_climate
+          multiple: true
+    schedule:
+      example: |
+        workday [workdays]: 00:00 sleep, 06:30 comfort, 22:30 sleep
+        weekend [weekend]: 00:00 sleep, 08:00 comfort, 23:00 sleep
+      selector:
+        text:
+          multiline: true
+    profiles:
+      selector:
+        object:
+    enable:
+      selector:
+        boolean:
+
+resume_schedule:
+  fields:
+    entity_id:
+      required: true
+      example: climate.lounge
+      selector:
+        entity:
+          integration: comfort_climate
+          multiple: true
+
+get_schedule:
+  fields:
+    entity_id:
+      required: true
+      example: climate.lounge
+      selector:
+        entity:
+          integration: comfort_climate
+          multiple: true

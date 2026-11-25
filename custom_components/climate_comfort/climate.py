@@ -28,6 +28,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
     async_call_later,
@@ -38,6 +39,8 @@ from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 
 from . import get_device_configs
 from .const import (
+    DATA_SCHEDULE,
+    SIGNAL_MODE_REASSERTED,
     ATTR_ACTIVE_DEVICES,
     CONF_DEVICE_ID,
     ATTR_COMFORT_ZONE,
@@ -58,6 +61,8 @@ from .const import (
     CONF_DEVICE_HVAC_MODE_ON,
     CONF_DEVICE_FAN_MODE,
     CONF_DEVICE_LABEL,
+    CONF_DEVICE_MIN_OFF_MINUTES,
+    CONF_DEVICE_MIN_ON_MINUTES,
     CONF_DEVICE_ROLE,
     CONF_DEVICE_SWING_HORIZONTAL_MODE,
     CONF_DEVICE_SWING_MODE,
@@ -282,6 +287,13 @@ class _ComfortExtraData(ExtraStoredData):
         return {"manual_holds": self.manual_holds}
 
 
+def _state_is_on(entity_id: str, state: str | None) -> bool:
+    """Whether a state value means the device is running."""
+    if entity_id.startswith("climate."):
+        return state not in (None, "off", "unavailable", "unknown")
+    return state == "on"
+
+
 class _Device:
     """Runtime wrapper for one controlled device stage."""
 
@@ -328,6 +340,10 @@ class _Device:
         self.humidity_hysteresis: float = float(data.get(CONF_DEVICE_HUMIDITY_HYSTERESIS, 5.0))
         self.dehumidify_only_when_idle: bool = bool(data.get(CONF_DEVICE_DEHUMIDIFY_ONLY_WHEN_IDLE, True))
 
+        # Short-cycle protection, in minutes (0 = no limit).
+        self.min_on_minutes: float = max(0.0, float(data.get(CONF_DEVICE_MIN_ON_MINUTES) or 0))
+        self.min_off_minutes: float = max(0.0, float(data.get(CONF_DEVICE_MIN_OFF_MINUTES) or 0))
+
         self.is_active: bool = False
 
     @property
@@ -361,7 +377,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
     _attr_target_temperature_step = DEFAULT_TEMP_STEP
     # Shown on the dashboard card, but they change with every temperature
     # reading or count down by the minute, so keep them out of the database.
-    _unrecorded_attributes = frozenset({"stages", "manual_holds"})
+    _unrecorded_attributes = frozenset({"stages", "manual_holds", "min_time_waits"})
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
@@ -401,6 +417,13 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         # change while a stage is already running can be pushed to the device
         # without re-sending an identical value on every evaluation.
         self._last_target_sent: dict[str, float] = {}
+        # When each physical device last switched between on and off, by us or
+        # by hand, for the minimum on / off times. Unknown (not seen to switch
+        # since this room started) means no limit applies yet.
+        self._last_switched: dict[str, Any] = {}
+        # Devices the last evaluation wanted to switch but left as they are
+        # until their minimum time ends: entity_id -> {"action", "until"}.
+        self._min_time_waits: dict[str, dict[str, Any]] = {}
 
         # Evaluations make blocking service calls, and those calls change device
         # states, which in turn request another evaluation. Only one runs at a
@@ -446,6 +469,9 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         # the temperature the thermostat card shows, which in Heat or Cool mode
         # is the activation threshold rather than the midpoint.
         self._setpoint: float = self._mode_temps[MODE_HOME]
+        # This room's own schedule. While it is on, the room ignores House /
+        # Floor Mode except for Away.
+        self._schedule = hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get(DATA_SCHEDULE)
         self._profile_override: str | None = (
             hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get("profile_override")
         )
@@ -689,7 +715,62 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             "point_spacing": self._profile_point_spacing(),
         }
 
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_MODE_REASSERTED, self._mode_reasserted)
+        )
+        if self._schedule is not None:
+            self._schedule.target = self
+            if self.hass.is_running:
+                self.hass.async_create_task(self._schedule.async_evaluate())
+
         self.hass.async_create_task(self._evaluate_devices())
+
+    # ── Schedules ──────────────────────────────────────────────────────────
+
+    def _own_schedule(self) -> bool:
+        return self._schedule is not None and self._schedule.enabled
+
+    @property
+    def target_entity_id(self) -> str | None:
+        return self.entity_id
+
+    def schedule_presets(self) -> list[str]:
+        return [p for p in self._attr_preset_modes if p != PRESET_NONE]
+
+    def schedule_current(self) -> str | None:
+        return self._attr_preset_mode if self.hass is not None else None
+
+    async def async_apply_scheduled(self, preset: str) -> None:
+        await self._async_apply_preset(preset)
+
+    async def schedule_disabled(self) -> None:
+        """Without its own schedule the room follows House / Floor Mode again."""
+        if not self._house_mode_entity:
+            return
+        state = self.hass.states.get(self._house_mode_entity)
+        preset = _HOUSE_MODE_TO_PRESET.get(state.state.lower()) if state else None
+        if preset and preset in self._enabled_modes:
+            await self._async_apply_preset(preset)
+
+    @callback
+    def _mode_reasserted(self, entity_id: str) -> None:
+        """A schedule set our mode selector to the value it already had."""
+        if entity_id != self._house_mode_entity or self._own_schedule():
+            return
+        state = self.hass.states.get(entity_id)
+        preset = _HOUSE_MODE_TO_PRESET.get(state.state.lower()) if state else None
+        if preset and preset in self._enabled_modes and preset != self._attr_preset_mode:
+            self.hass.async_create_task(self._async_apply_preset(preset))
+
+    def _schedule_entity_id(self) -> str | None:
+        """The schedule that decides this room's preset, for the card."""
+        if self._own_schedule():
+            return self._schedule.sensor_entity_id
+        if self._house_mode_entity and self._schedule is not None:
+            followed = self._schedule.manager.controller_for_entity(self._house_mode_entity)
+            if followed is not None and followed.enabled:
+                return followed.sensor_entity_id
+        return None
 
     @callback
     def _handle_state_change(self, event) -> None:
@@ -717,6 +798,15 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
 
         elif entity_id == self._house_mode_entity:
             preset = _HOUSE_MODE_TO_PRESET.get(new_state.state.lower())
+            if preset and preset in self._enabled_modes and self._own_schedule():
+                # The room's own schedule decides, but Away still applies.
+                previous = self._attr_preset_mode
+                if preset == MODE_AWAY:
+                    self.hass.async_create_task(self._async_apply_preset(preset))
+                    self._schedule.note_change(preset, previous)
+                elif previous == MODE_AWAY:
+                    self.hass.async_create_task(self._return_from_away(preset))
+                return
             if preset and preset in self._enabled_modes:
                 self._attr_preset_mode = preset
                 if preset == MODE_AWAY:
@@ -733,6 +823,12 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             old_state = event.data.get("old_state")
             if old_state is not None and old_state.state == new_state.state:
                 return
+            # A switch made by hand counts for the minimum times too: the
+            # compressor does not care who turned it on.
+            if old_state is not None and _state_is_on(entity_id, old_state.state) != _state_is_on(
+                entity_id, new_state.state
+            ):
+                self._last_switched[entity_id] = dt_util.utcnow()
             self.hass.async_create_task(self._evaluate_devices())
 
     async def _handle_tick(self, _now=None) -> None:
@@ -755,9 +851,66 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         state = self.hass.states.get(entity_id)
         if state is None:
             return False
-        if entity_id.startswith("climate."):
-            return state.state not in ("off", "unavailable", "unknown")
-        return state.state in ("on",)
+        return _state_is_on(entity_id, state.state)
+
+    def _min_time_wait(self, entity_id: str, turn_on: bool) -> float:
+        """Seconds before this device may be switched on (or off); 0 if now.
+
+        Only switching the physical device between on and off is limited. A
+        climate entity configured as several stages is one device, so its
+        strictest stage setting applies; moving it between its own stages (fan
+        only to cool, say) is not a switch on or off and is never held.
+        """
+        minutes = max(
+            (
+                d.min_off_minutes if turn_on else d.min_on_minutes
+                for d in self._devices
+                if d.entity_id == entity_id
+            ),
+            default=0.0,
+        )
+        since = self._last_switched.get(entity_id)
+        if minutes <= 0 or since is None:
+            return 0.0
+        return max(0.0, minutes * 60 - (dt_util.utcnow() - since).total_seconds())
+
+    def _may_switch(self, entity_id: str, turn_on: bool) -> bool:
+        """Whether an automatic switch on / off may happen now; records the wait if not."""
+        wait = self._min_time_wait(entity_id, turn_on)
+        if wait <= 0:
+            return True
+        self._min_time_waits[entity_id] = {
+            "action": "on" if turn_on else "off",
+            "until": dt_util.utcnow() + timedelta(seconds=wait),
+        }
+        return False
+
+    def _opposite_running(self, device: _Device) -> bool:
+        """Whether another device is still heating while this one would cool,
+        or the other way round.
+
+        Normally the comfort zone keeps the two apart, but a minimum on time or
+        a sudden change of preset can leave one running after the room has
+        crossed to needing the other. Starting this one then would only fight
+        it; it waits until the other has switched off.
+        """
+        if device.role not in (ROLE_HEATING, ROLE_COOLING):
+            return False
+        opposite = ROLE_COOLING if device.role == ROLE_HEATING else ROLE_HEATING
+        return any(
+            other.is_active and other.role == opposite and other.entity_id != device.entity_id
+            for other in self._devices
+        )
+
+    def _may_start(self, device: _Device) -> bool:
+        return not self._opposite_running(device) and self._may_switch(
+            device.entity_id, turn_on=True
+        )
+
+    def _note_switch(self, entity_id: str, was_on: bool, now_on: bool) -> None:
+        """Remember when we switched a device on or off, for the minimum times."""
+        if was_on != now_on:
+            self._last_switched[entity_id] = dt_util.utcnow()
 
     def _device_target_hvac_mode(self, device: _Device) -> str:
         """Return the HA HVAC mode this configured climate stage represents."""
@@ -999,6 +1152,8 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             ATTR_UPPER_THRESHOLD: round(ut, 2),
             ATTR_EFFECTIVE_SETPOINT: self._setpoint,
             ATTR_ACTIVE_DEVICES: [d.entity_id for d in self._devices if d.is_active],
+            # The schedule sensor that decides this room's preset, for the card.
+            "schedule_entity": self._schedule_entity_id(),
         }
         if self._humidity_sensor:
             attrs[ATTR_CURRENT_HUMIDITY] = self._attr_current_humidity
@@ -1032,6 +1187,14 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             if hold_info:
                 attrs["manual_holds"] = hold_info
 
+        waits = {
+            eid: wait
+            for eid in self._min_time_waits
+            if (wait := self._min_time_wait_attribute(eid)) is not None
+        }
+        if waits:
+            attrs["min_time_waits"] = waits
+
         return attrs
 
     def _stage_attributes(self, lt: float, ut: float, point_spacing: float) -> list[dict[str, Any]]:
@@ -1055,11 +1218,20 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
                     "threshold": threshold,
                     "active": device.is_active,
                     "manual": device.entity_id in self._manual_holds,
+                    # Set while the device is kept as it is by its minimum on /
+                    # off time: {"action": "on" | "off", "until": ISO time}.
+                    "min_time_wait": self._min_time_wait_attribute(device.entity_id),
                     "entity_id": device.entity_id,
                     "hvac_mode": self._device_target_hvac_mode(device) if device.is_climate else None,
                 }
             )
         return stages
+
+    def _min_time_wait_attribute(self, entity_id: str) -> dict[str, str] | None:
+        wait = self._min_time_waits.get(entity_id)
+        if wait is None or wait["until"] <= dt_util.utcnow():
+            return None
+        return {"action": wait["action"], "until": wait["until"].isoformat()}
 
     def manual_control_attributes(self) -> dict[str, Any]:
         """Return concise metadata for the room-level manual-control UI."""
@@ -1157,9 +1329,22 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             await self._evaluate_devices()
         self.async_write_ha_state()
 
+    async def _return_from_away(self, house_preset: str) -> None:
+        """House Mode left Away: the room's schedule decides, else House Mode."""
+        await self._schedule.async_evaluate(force=True)
+        if self._attr_preset_mode == MODE_AWAY:
+            await self._async_apply_preset(house_preset)
+
     async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """A preset chosen by a person, an automation or the card."""
         if preset_mode != PRESET_NONE and preset_mode not in self._attr_preset_modes:
             raise HomeAssistantError(f"Unsupported preset mode: {preset_mode}")
+        previous = self._attr_preset_mode
+        await self._async_apply_preset(preset_mode)
+        if self._own_schedule():
+            self._schedule.note_change(preset_mode, previous)
+
+    async def _async_apply_preset(self, preset_mode: str) -> None:
         self._attr_preset_mode = preset_mode
         if preset_mode == MODE_AWAY:
             self._setpoint = round((self._minimum_temperature + self._maximum_temperature) / 2, 1)
@@ -1292,6 +1477,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
         # Check for manual changes before doing anything else.
         # Compares expected state (is_active) against actual HA state.
         self._check_manual_changes()
+        self._min_time_waits = {}
 
         if self._attr_hvac_mode == HVACMode.OFF:
             # Evaluations now also run on a timer and on device changes, so only
@@ -1339,9 +1525,11 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
                 deactivate_at = activate_at + device.deactivate_offset
                 should_activate = current <= activate_at or (emergency_heat and device.emergency_enabled)
                 if should_activate and not device.is_active:
-                    await self._activate_device(device)
+                    if self._may_start(device):
+                        await self._activate_device(device)
                 elif current >= deactivate_at and device.is_active:
-                    await self._deactivate_device(device)
+                    if self._may_switch(device.entity_id, turn_on=False):
+                        await self._deactivate_device(device)
                 if device.is_active:
                     any_heating = True
 
@@ -1350,13 +1538,17 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
                 deactivate_at = activate_at - device.deactivate_offset
                 should_activate = current >= activate_at or (emergency_cool and device.emergency_enabled)
                 if should_activate and not device.is_active:
-                    await self._activate_device(device)
+                    if self._may_start(device):
+                        await self._activate_device(device)
                 elif current <= deactivate_at and device.is_active:
-                    await self._deactivate_device(device)
+                    if self._may_switch(device.entity_id, turn_on=False):
+                        await self._deactivate_device(device)
                 if device.is_active:
                     any_cooling = True
 
             else:
+                # The thermostat's mode no longer allows this role. That was a
+                # person's choice, so it takes effect at once.
                 if device.is_active:
                     await self._deactivate_device(device)
 
@@ -1399,6 +1591,27 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             )
             prev = self._active_climate_stage.get(entity_id)
 
+            # Switching the unit on from off, or off altogether, waits for its
+            # minimum times. The stages are left as they were meanwhile, so the
+            # manual-change check finds nothing to call an override. Switching
+            # off because a person changed the thermostat's mode is not held.
+            mode_forbids_prev = prev is not None and (
+                (prev.role == ROLE_HEATING and not mode_allows_heating)
+                or (prev.role == ROLE_COOLING and not mode_allows_cooling)
+            )
+            if (
+                (prev is None) != (winning is None)
+                and not mode_forbids_prev
+                and not (
+                    self._may_start(winning)
+                    if winning is not None
+                    else self._may_switch(entity_id, turn_on=False)
+                )
+            ):
+                for stage in stages:
+                    stage.is_active = stage is prev
+                winning = prev
+
             if winning != prev:
                 if winning is None:
                     await self._set_climate_off(entity_id)
@@ -1430,16 +1643,29 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
                 continue
             # Optionally suppress dehumidification when heating/cooling is active
             if device.dehumidify_only_when_idle and (any_heating or any_cooling):
-                if device.is_active:
+                if device.is_active and (
+                    self._same_climate_has_active_temperature_stage(device)
+                    or self._may_switch(device.entity_id, turn_on=False)
+                ):
                     await self._deactivate_or_release_device(device)
+                if device.is_active:
+                    any_dehumidifying = True
                 continue
 
             activate_at = device.humidity_threshold
             deactivate_at = activate_at - device.humidity_hysteresis
             if current_humidity >= activate_at and not device.is_active:
-                await self._activate_device(device)
+                # Joining a unit already running in another mode is not a
+                # switch on, so only an idle unit waits.
+                if self._device_is_on(device.entity_id) or self._may_switch(
+                    device.entity_id, turn_on=True
+                ):
+                    await self._activate_device(device)
             elif current_humidity <= deactivate_at and device.is_active:
-                await self._deactivate_or_release_device(device)
+                if self._same_climate_has_active_temperature_stage(device) or self._may_switch(
+                    device.entity_id, turn_on=False
+                ):
+                    await self._deactivate_or_release_device(device)
 
             if device.is_active:
                 any_dehumidifying = True
@@ -1505,6 +1731,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
     async def _activate_device(self, device: _Device) -> None:
         _LOGGER.info("climate_comfort: activating '%s' (%s)", device.label, device.entity_id)
         self._mark_integration_touch(device.entity_id)
+        was_on = self._device_is_on(device.entity_id)
         try:
             if device.is_climate:
                 if device.role == ROLE_DEHUMIDIFY:
@@ -1528,6 +1755,7 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
                     {"entity_id": device.entity_id},
                     blocking=True,
                 )
+            self._note_switch(device.entity_id, was_on, True)
             device.is_active = True  # Commit only after all calls succeed
         except Exception as err:
             _LOGGER.error(
@@ -1571,11 +1799,13 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
             if device.is_climate:
                 await self._set_climate_off(device.entity_id)
             else:
+                was_on = self._device_is_on(device.entity_id)
                 await self.hass.services.async_call(
                     "homeassistant", "turn_off",
                     {"entity_id": device.entity_id},
                     blocking=True,
                 )
+                self._note_switch(device.entity_id, was_on, False)
             device.is_active = False  # Commit only after success
         except Exception as err:
             _LOGGER.error(
@@ -1631,11 +1861,13 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
     async def _set_climate_off(self, entity_id: str) -> None:
         self._last_target_sent.pop(entity_id, None)
         self._mark_integration_touch(entity_id)
+        was_on = self._device_is_on(entity_id)
         await self.hass.services.async_call(
             "climate", "set_hvac_mode",
             {"entity_id": entity_id, "hvac_mode": "off"},
             blocking=True,
         )
+        self._note_switch(entity_id, was_on, False)
 
     async def _turn_off_all(self, only_if_on: bool = False) -> None:
         turned_off: set[str] = set()
@@ -1650,11 +1882,13 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
                 await self._set_climate_off(device.entity_id)
             else:
                 self._mark_integration_touch(device.entity_id)
+                was_on = self._device_is_on(device.entity_id)
                 await self.hass.services.async_call(
                     "homeassistant", "turn_off",
                     {"entity_id": device.entity_id},
                     blocking=True,
                 )
+                self._note_switch(device.entity_id, was_on, False)
             turned_off.add(device.entity_id)
             device.is_active = False
         self._active_climate_stage.clear()
@@ -1673,11 +1907,13 @@ class ClimateComfortEntity(ClimateEntity, RestoreEntity):
                 await self._set_climate_off(device.entity_id)
             else:
                 self._mark_integration_touch(device.entity_id)
+                was_on = self._device_is_on(device.entity_id)
                 await self.hass.services.async_call(
                     "homeassistant", "turn_off",
                     {"entity_id": device.entity_id},
                     blocking=True,
                 )
+                self._note_switch(device.entity_id, was_on, False)
             turned_off.add(device.entity_id)
             device.is_active = False
         self._sync_binary_sensors()

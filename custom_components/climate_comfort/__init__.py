@@ -19,13 +19,18 @@ from .const import (
     CONF_DEVICE_ROLE,
     CONF_DEVICES,
     CONF_ENTRY_TYPE,
+    CONF_FLOOR_NAMES,
     CONF_PROFILE_BALANCED_POINT_SPACING,
+    DATA_FLOOR_SCHEDULES,
+    DATA_HOUSE_SCHEDULE,
+    DATA_SCHEDULE,
     DEFAULT_PROFILE_BALANCED_POINT_SPACING,
     DOMAIN,
     ENTRY_TYPE_GLOBAL,
     ENTRY_TYPE_ROOM,
     ROLE_HEATING,
     SUBENTRY_TYPE_DEVICE,
+    floor_slug,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -64,13 +69,32 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         add_extra_js_url(hass, f"{CARD_URL}?v={integration.version}")
     except Exception:  # noqa: BLE001 - the card is optional, the thermostat is not
         _LOGGER.exception("Could not register the Climate Comfort dashboard card")
+
+    # Schedules: load them, offer the services, and start once Home Assistant
+    # has started (workdays and calendars need their integrations loaded).
+    from .scheduler import get_manager
+    from .services import async_register_services
+
+    manager = get_manager(hass)
+    await manager.async_load()
+    async_register_services(hass)
+
+    async def _start(_event=None) -> None:
+        await manager.async_start()
+
+    if hass.is_running:
+        await _start()
+    else:
+        from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _start)
     return True
 
 # Platforms created for room thermostat entries
-PLATFORMS = ["climate", "binary_sensor", "number", "switch", "button", "select"]
+PLATFORMS = ["climate", "binary_sensor", "number", "switch", "button", "select", "sensor"]
 
 # Platforms created for the Global Defaults entry (mode selector lives here)
-GLOBAL_PLATFORMS = ["select"]
+GLOBAL_PLATFORMS = ["select", "switch", "sensor"]
 
 
 def _global_balanced_point_spacing(hass: HomeAssistant) -> float:
@@ -247,6 +271,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {}
 
     entry_type = entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_ROOM)
+    _create_schedule_controllers(hass, entry)
 
     if entry_type == ENTRY_TYPE_ROOM:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -255,6 +280,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     elif entry_type == ENTRY_TYPE_GLOBAL:
         await hass.config_entries.async_forward_entry_setups(entry, GLOBAL_PLATFORMS)
         entry.async_on_unload(entry.add_update_listener(_async_update_options))
+        # The workday sensor, calendar or start of day may have changed.
+        from .scheduler import get_manager
+
+        if hass.is_running:
+            hass.async_create_task(get_manager(hass).async_refresh())
 
     return True
 
@@ -270,8 +300,46 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     elif entry_type == ENTRY_TYPE_GLOBAL:
         await hass.config_entries.async_unload_platforms(entry, GLOBAL_PLATFORMS)
 
-    hass.data[DOMAIN].pop(entry.entry_id)
+    entry_data = hass.data[DOMAIN].pop(entry.entry_id)
+    for controller in _entry_controllers(entry_data):
+        controller.manager.unregister(controller)
     return True
+
+
+def _create_schedule_controllers(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Make the entry's schedules before its platforms load.
+
+    The platforms load at the same time, and the schedule's switch, select and
+    sensor, and its target (a thermostat or a mode selector), all need it.
+    """
+    from .scheduler import OWNER_HOUSE, ScheduleController, floor_owner, get_manager, room_owner
+
+    manager = get_manager(hass)
+    entry_data = hass.data[DOMAIN][entry.entry_id]
+    if entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_ROOM) == ENTRY_TYPE_ROOM:
+        entry_data[DATA_SCHEDULE] = ScheduleController(
+            manager, room_owner(entry.entry_id), entry.data.get("name") or entry.title
+        )
+        return
+    entry_data[DATA_HOUSE_SCHEDULE] = ScheduleController(manager, OWNER_HOUSE, "House")
+    entry_data[DATA_FLOOR_SCHEDULES] = {
+        name: ScheduleController(manager, floor_owner(floor_slug(name)), name)
+        for name in entry.data.get(CONF_FLOOR_NAMES, [])
+    }
+
+
+def _entry_controllers(entry_data: dict) -> list:
+    found = [entry_data.get(DATA_SCHEDULE), entry_data.get(DATA_HOUSE_SCHEDULE)]
+    found.extend(entry_data.get(DATA_FLOOR_SCHEDULES, {}).values())
+    return [c for c in found if c is not None]
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Forget a deleted room's schedule (the House's stays with Global Defaults)."""
+    from .scheduler import get_manager, room_owner
+
+    if entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_ROOM) == ENTRY_TYPE_ROOM:
+        get_manager(hass).remove_owner(room_owner(entry.entry_id))
 
 
 async def _async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:

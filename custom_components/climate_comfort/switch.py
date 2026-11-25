@@ -9,6 +9,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import async_update_entry_live, get_device_configs
+from .schedule_entities import entities_for_entry
 from .const import (
     CONF_DEVICE_ROLE,
     CONF_ENTRY_TYPE,
@@ -59,6 +60,7 @@ async def async_setup_entry(
         hass.data[DOMAIN][entry.entry_id]["dehumidify_switch"] = dh_switch
         entities.append(dh_switch)
 
+    entities.extend(entities_for_entry(hass, entry, "switch"))
     async_add_entities(entities)
 
 

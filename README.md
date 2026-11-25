@@ -22,9 +22,11 @@ A custom Home Assistant integration that turns any collection of switches, fans,
   - [Escalation Stages](#escalation-stages)
   - [Target Temp Offset](#target-temp-offset)
   - [Fan Speed and Swing Direction](#fan-speed-and-swing-direction)
+  - [Minimum On and Off Times](#minimum-on-and-off-times)
   - [Manual Hold Detection](#manual-hold-detection)
   - [Startup and Restarts](#startup-and-restarts)
   - [House and Floor Mode](#house-and-floor-mode)
+  - [Schedules](#schedules)
 - [Entities Reference](#entities-reference)
 - [Tips and Examples](#tips-and-examples)
 - [Dashboard Example](#dashboard-example)
@@ -55,9 +57,11 @@ Climate Comfort creates a **virtual thermostat** for each room. You tell it whic
 - **Dehumidifier support** — humidity-based control independent of temperature, with optional suppression when heating/cooling is active
 - **Manual hold detection** — automatically detects when a device has been changed outside of automation and suspends control for a configurable period
 - **Global defaults** — share preset temperatures and comfort-zone width across all rooms; override per-room at any time
+- **Schedules** — weekly profiles for the House, each floor or a single room, with workdays and holidays, calendar events, and a drag-to-edit timeline in the card
 - **House and floor mode selectors** — a single entity change cascades the active preset to every room, or just the rooms on one floor
 - **Live number entities** — edit preset temperatures and comfort zone directly from the device page without opening the options flow
 - **Built-in dashboard card** — a comfort-band card that configures itself from the room's thermostat, with a visual editor
+- **Short-cycle protection** — optional minimum on and off times per device, so compressors are never started and stopped too quickly
 - **Fan speed and swing direction** — optionally set a climate device's fan speed and its vertical and horizontal swing directions when it activates, alongside the HVAC mode
 - **Smart HVAC mode** — supported modes are inferred automatically from the device roles configured; no manual selection needed
 
@@ -267,6 +271,13 @@ Only the settings that apply to the entity and role you chose are shown.
 | **Target overshoot** | Optional offset applied to the device's temperature setpoint to ensure it actually runs — see [Target Temp Offset](#target-temp-offset) |
 | **Fan speed / swing direction** | Optional — see [Fan Speed and Swing Direction](#fan-speed-and-swing-direction) |
 
+**Every device**
+
+| Field | Description |
+|---|---|
+| **Minimum on time** | Minutes the device keeps running once switched on. `0` (default) = no limit. See [Minimum On and Off Times](#minimum-on-and-off-times) |
+| **Minimum off time** | Minutes the device stays off once switched off before it may start again. `0` (default) = no limit |
+
 ---
 
 ## Concepts
@@ -407,6 +418,51 @@ a louvre.
 
 ---
 
+### Minimum On and Off Times
+
+Air conditioners, heat pumps and dehumidifiers have compressors, and a compressor
+that is started and stopped every few minutes wears out quickly. Hysteresis
+limits how far the temperature must move before a device switches, but not how
+often. The minimum times limit how often.
+
+- **Minimum on time** — once a device has switched on, it keeps running at least
+  this long, even if the room is already back inside the comfort zone.
+- **Minimum off time** — once a device has switched off, it stays off at least
+  this long before it may start again. Many manufacturers ask for 3 to 5 minutes,
+  so the refrigerant pressures can settle.
+
+Typical values for an air conditioner or heat pump are a 5-minute minimum on
+time and a 3 to 5-minute minimum off time. Leave both at `0` for radiators,
+fans and other devices that do not mind being switched often.
+
+How they behave:
+
+- **Switches made by hand count too.** If you turn the air conditioner off
+  yourself, its minimum off time starts then.
+- **Only switching on and off is limited.** A climate entity used as several
+  stages (fan only, then cool) counts as one device and uses the longest time
+  set on any of its stages. Moving between its own stages is never delayed.
+- **Your own choices are never delayed.** Turning the thermostat off, switching
+  it to Heat only or Cool only, and turning the *Dehumidification* switch off
+  all take effect at once. So does the fail-safe shutdown when the temperature
+  sensor goes unavailable.
+- **The safety limits wait too.** A device that should start because the room
+  crossed the global minimum or maximum temperature still waits out its minimum
+  off time. The wait is only a few minutes, and it protects the hardware.
+- **A held device is not a manual change.** While a device waits, the controller
+  expects it to stay as it is, so no manual hold is triggered.
+- **The device switches within 30 seconds** of its minimum time ending, at the
+  next scheduled check.
+- **Times are not kept across a restart.** After Home Assistant starts, the
+  limits apply from each device's first switch.
+
+While a device waits, the thermostat shows it in a `min_time_waits` attribute,
+for example `{"climate.aircon": {"action": "off", "until": "2026-11-25T14:05:00+00:00"}}`,
+and the same value appears as `min_time_wait` on that device's entry in
+`stages`.
+
+---
+
 ### Manual Hold Detection
 
 Climate Comfort watches the actual state of every controlled device and compares it to the expected state. If a device is changed by anything other than the integration itself — a manual toggle, a voice command, another automation — it detects the divergence and enters a **manual hold**:
@@ -470,13 +526,135 @@ In the room's settings, set *House / floor mode entity* to either the House Mode
 
 ---
 
+### Schedules
+
+A schedule changes presets by time of day. There are three kinds, and you can
+use any mix of them:
+
+| Schedule | Changes | Use it for |
+|---|---|---|
+| **House schedule** | House Mode, and so every floor and room following it | One routine for the whole home |
+| **Floor schedule** | One Floor Mode selector | A floor that keeps different hours (e.g. bedrooms upstairs) |
+| **Room schedule** | That room's own preset | A room that is its own case (an office, a nursery) |
+
+Every schedule is **off** until you switch it on, so updating changes nothing.
+
+#### Profiles
+
+A schedule is a set of **profiles**. A profile is a list of times and presets,
+plus the days it covers. Each time lasts until the next one. If a day's first
+time is not 00:00, the last preset of the day before carries on until it.
+
+```
+workday [workdays]: 00:00 sleep, 06:30 comfort, 08:30 eco, 17:00 comfort, 22:30 sleep
+weekend [weekend]: 00:00 sleep, 08:30 comfort, 23:00 sleep
+home_office [wed]: 07:30 comfort, 22:30 sleep
+holiday (off): 00:00 eco
+```
+
+- **Days** are `all` (the default when left out), `workdays`, `weekend`, or a
+  list of days such as `mon, wed`.
+- **`(off)`** keeps a profile without using it. A profile that is off can still
+  be called up by the calendar or the profile selector.
+- **Which profile a day uses:**
+  1. a calendar event that day titled with a profile's name;
+  2. an enabled profile for chosen days that include that day;
+  3. the enabled `workdays` or `weekend` profile;
+  4. the enabled `all` profile.
+
+  With none of these, the schedule leaves the preset alone that day.
+- **Two enabled profiles may not cover the same days.** `all` overlaps
+  `workdays` and `weekend`, and chosen-day profiles overlap when they share a
+  day. A chosen-day profile does not overlap the groups: on its days it wins.
+
+#### Editing
+
+- **In the card** (easiest): *Edit schedule* opens a timeline for each profile.
+  - Drag the boundaries to move a time, in 5-minute steps.
+  - Tap a block to change its preset, split it in two or remove it.
+  - Pick the days with the chips.
+  - Save checks the whole schedule first.
+- **In the settings**:
+  - A room's own schedule: *Configure → Schedule*.
+  - The House and floor schedules: Global Defaults *Configure → Schedules*.
+  - Both are the text format above.
+- **From an automation** — `comfort_climate.set_schedule`, with the text or a
+  `profiles` list. Target a room thermostat, a House / Floor Mode selector, or
+  any of the schedule's entities:
+
+  ```yaml
+  action: comfort_climate.set_schedule
+  data:
+    entity_id: climate.lounge
+    schedule: |
+      workday [workdays]: 00:00 sleep, 06:30 comfort, 22:30 sleep
+      weekend [weekend]: 00:00 sleep, 08:30 comfort, 23:00 sleep
+    enable: true
+  ```
+
+  `comfort_climate.get_schedule` returns a schedule as text and as profiles.
+
+Schedules are kept in Home Assistant's own storage, not in the integration's
+settings, so saving one never reloads a room.
+
+#### Changes made by hand, and Away
+
+- **A preset changed by hand lasts until the next scheduled change.** This
+  covers the card, a voice assistant, an automation, or House Mode for its own
+  schedule. Then the schedule takes over again. *Resume schedule* (in the card,
+  or `comfort_climate.resume_schedule`) ends it straight away.
+- **Away pauses a schedule.** While House Mode, a Floor Mode or a room is in
+  Away, the schedule changes nothing. When Away ends, it goes straight back to
+  what the schedule says now.
+- **A room or floor with its own schedule ignores House Mode, except Away.**
+  If House Mode goes to Away, they go too. When House Mode leaves Away, they go
+  back to their own schedule.
+- **At every scheduled change, rooms are brought back.** A room following
+  House Mode that someone set by hand returns to House Mode, even if the
+  scheduled preset is the one House Mode already had.
+
+#### Workdays, holidays and the calendar
+
+All three are set once, in Global Defaults *Configure → Schedules → Workdays,
+calendar and start of day*:
+
+- **Workday sensor** (optional): a sensor from the Workday integration. Public
+  holidays then use the `weekend` profile. Without one, Monday to Friday are
+  workdays.
+- **Calendar** (optional): any Home Assistant calendar. It is read every hour,
+  whenever an event starts or ends, and when Climate Comfort reloads. An event
+  you add can take up to an hour to be noticed.
+  - An event titled with a **profile name** (e.g. `weekend` on a day off)
+    switches the whole day to that profile.
+  - An event titled with a **preset** (e.g. `away` from 09:00 to 17:00) sets
+    that preset while the event lasts.
+- **Schedule day starts at**: leave at 00:00 unless you work nights. With 05:00,
+  the small hours of Saturday still follow Friday's profile.
+
+#### Entities
+
+Each schedule (room, House, each floor) has:
+
+| Entity | Type | Description |
+|---|---|---|
+| **Schedule** | `switch` | Switches the schedule on and off |
+| **Schedule profile** | `select` | Chooses a profile: it is switched on and any profile covering the same days is switched off. Its `today` attribute is the profile in use today |
+| **Next scheduled change** | `sensor` | When the preset next changes. Attributes: `scheduled_preset`, `next_preset`, `profile_today`, `override`, `paused`, and the profiles themselves for the card |
+
+On the House device they are called *House schedule*, *House schedule
+profile* and *House next scheduled change*; a floor's carry the floor name. A
+room's thermostat has a `schedule_entity` attribute naming the schedule that
+decides its preset: its own, or the one of the selector it follows.
+
+---
+
 ## Entities Reference
 
 ### Per Room
 
 | Entity | Type | Description |
 |---|---|---|
-| *(Room name)* | `climate` | The main thermostat — shows current temperature, HVAC action, setpoint, preset, and rich diagnostic attributes such as thresholds, effective comfort zone, active profile, point spacing, and any manual holds |
+| *(Room name)* | `climate` | The main thermostat — shows current temperature, HVAC action, setpoint, preset, and rich diagnostic attributes such as thresholds, effective comfort zone, active profile, point spacing, any manual holds, and any devices waiting out a minimum on / off time (`min_time_waits`) |
 | *(Device label)* | `binary_sensor` | One per configured device — Running when active, Idle otherwise. Attributes include `trigger_temperature`, the on/off thresholds and manual override status |
 | **Comfort Zone** | `number` | Live-editable deadband half-width |
 | **Sleep / Home / Comfort / Eco Temperature** | `number` | Core mode temperatures shown by default; Away always inherits the configured minimum / maximum safety bounds instead |

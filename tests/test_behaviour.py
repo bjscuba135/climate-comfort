@@ -469,13 +469,158 @@ def test_thermostat_publishes_its_stages_for_the_card():
         assert attrs["stages"] == [
             {
                 "id": "trv", "label": "Radiator", "kind": "heating", "threshold": 20.0,
-                "active": True, "manual": False, "entity_id": "climate.trv", "hvac_mode": "heat",
+                "active": True, "manual": False, "min_time_wait": None, "entity_id": "climate.trv", "hvac_mode": "heat",
             },
             {
                 "id": "ac", "label": "Aircon", "kind": "cooling", "threshold": 22.0,
-                "active": False, "manual": False, "entity_id": "climate.aircon", "hvac_mode": "cool",
+                "active": False, "manual": False, "min_time_wait": None, "entity_id": "climate.aircon", "hvac_mode": "cool",
             },
         ]
         assert {"stages", "manual_holds"} <= entity._unrecorded_attributes
+
+    run(scenario())
+
+
+# ── Minimum on / off times ───────────────────────────────────────────────────
+
+
+def _minutes_ago(entity, entity_id, minutes):
+    """Pretend the device last switched this many minutes ago."""
+    entity._last_switched[entity_id] = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+
+
+def test_minimum_on_and_off_times_hold_a_compressor_in_its_state():
+    async def scenario():
+        ac = {**AIRCON, "min_on_minutes": 5, "min_off_minutes": 3}
+        hass, entity, _ = make_room(
+            [TRV, ac], room_data={"manual_hold_confirm_seconds": 0}
+        )
+        entity._attr_native_current_temperature = 23.0
+        await entity._evaluate_devices()
+        assert hass.states.get("climate.aircon").state == "cool"
+        assert entity._last_switched["climate.aircon"] is not None
+
+        # Cool enough to stop, but it has only just started: it keeps running,
+        # still counts as cooling, and is not mistaken for a manual change.
+        entity._attr_native_current_temperature = 21.0
+        await entity._evaluate_devices()
+        await entity._handle_tick()
+        assert hass.states.get("climate.aircon").state == "cool"
+        assert entity._attr_hvac_action == climate.HVACAction.COOLING
+        assert not entity._is_in_manual_hold("climate.aircon")
+        stage = next(s for s in entity.extra_state_attributes["stages"] if s["id"] == "ac")
+        assert stage["min_time_wait"]["action"] == "off"
+        assert "climate.aircon" in entity.extra_state_attributes["min_time_waits"]
+
+        # Once the minimum on time has passed it stops.
+        _minutes_ago(entity, "climate.aircon", 6)
+        await entity._evaluate_devices()
+        assert hass.states.get("climate.aircon").state == "off"
+
+        # Hot again straight away: it must rest first.
+        entity._attr_native_current_temperature = 23.0
+        await entity._evaluate_devices()
+        await entity._handle_tick()
+        assert hass.states.get("climate.aircon").state == "off"
+        assert not entity._is_in_manual_hold("climate.aircon")
+        assert entity.extra_state_attributes["min_time_waits"]["climate.aircon"]["action"] == "on"
+
+        _minutes_ago(entity, "climate.aircon", 4)
+        await entity._evaluate_devices()
+        assert hass.states.get("climate.aircon").state == "cool"
+        assert "min_time_waits" not in entity.extra_state_attributes
+
+    run(scenario())
+
+
+def test_turning_the_thermostat_off_or_changing_its_mode_is_not_held():
+    async def scenario():
+        ac = {**AIRCON, "min_on_minutes": 30}
+        hass, entity, _ = make_room([TRV, ac])
+        entity._attr_native_current_temperature = 23.0
+        await entity._evaluate_devices()
+        assert hass.states.get("climate.aircon").state == "cool"
+
+        # Heat only: the person no longer wants cooling, so it stops at once.
+        await entity.async_set_hvac_mode(climate.HVACMode.HEAT)
+        assert hass.states.get("climate.aircon").state == "off"
+
+        await entity.async_set_hvac_mode(climate.HVACMode.HEAT_COOL)
+        _minutes_ago(entity, "climate.aircon", 60)
+        await entity._evaluate_devices()
+        assert hass.states.get("climate.aircon").state == "cool"
+
+        await entity.async_set_hvac_mode(climate.HVACMode.OFF)
+        assert hass.states.get("climate.aircon").state == "off"
+
+    run(scenario())
+
+
+def test_a_switch_made_by_hand_starts_the_minimum_off_time():
+    async def scenario():
+        fan = {
+            "id": "fan", "entity_id": "switch.fan", "label": "Fan", "role": "cooling",
+            "activation_point": 0, "deactivate_offset": 0.5, "min_off_minutes": 3,
+        }
+        hass, entity, _ = make_room([fan])
+        entity._attr_native_current_temperature = 21.0
+        await entity._evaluate_devices()
+
+        # Someone switches it on and off again by hand.
+        entity._handle_state_change(Event("switch.fan", "off", "on"))
+        entity._handle_state_change(Event("switch.fan", "on", "off"))
+        hass.tasks.clear()
+
+        entity._attr_native_current_temperature = 23.0
+        await entity._evaluate_devices()
+        assert hass.states.get("switch.fan").state == "off"
+
+        _minutes_ago(entity, "switch.fan", 4)
+        await entity._evaluate_devices()
+        assert hass.states.get("switch.fan").state == "on"
+
+    run(scenario())
+
+
+def test_no_minimum_times_by_default():
+    async def scenario():
+        hass, entity, _ = make_room([TRV, AIRCON])
+        entity._attr_native_current_temperature = 23.0
+        await entity._evaluate_devices()
+        entity._attr_native_current_temperature = 21.0
+        await entity._evaluate_devices()
+        entity._attr_native_current_temperature = 23.0
+        await entity._evaluate_devices()
+        modes = [c["hvac_mode"] for c in hass.services.named("set_hvac_mode")
+                 if c["entity_id"] == "climate.aircon"]
+        assert modes == ["cool", "off", "cool"]
+
+    run(scenario())
+
+
+def test_heating_does_not_start_while_a_held_cooler_is_still_running():
+    async def scenario():
+        ac = {**AIRCON, "min_on_minutes": 5}
+        heater = {
+            "id": "heater", "entity_id": "switch.heater", "label": "Heater", "role": "heating",
+            "activation_point": 0, "deactivate_offset": 0.5,
+        }
+        hass, entity, _ = make_room([heater, ac])
+        entity._attr_native_current_temperature = 23.0
+        await entity._evaluate_devices()
+        assert hass.states.get("climate.aircon").state == "cool"
+
+        # The room drops to needing heat while the AC is held on: the heater waits.
+        entity._attr_native_current_temperature = 19.0
+        await entity._evaluate_devices()
+        assert hass.states.get("climate.aircon").state == "cool"
+        assert hass.states.get("switch.heater").state == "off"
+
+        # Once the AC may stop, it stops, and the heater starts at the next check.
+        _minutes_ago(entity, "climate.aircon", 6)
+        await entity._evaluate_devices()
+        assert hass.states.get("climate.aircon").state == "off"
+        await entity._evaluate_devices()
+        assert hass.states.get("switch.heater").state == "on"
 
     run(scenario())

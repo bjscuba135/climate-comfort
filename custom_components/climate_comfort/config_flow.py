@@ -9,7 +9,15 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.util import slugify
 
+from . import schedule as sched
 from .const import (
+    CONF_SCHEDULE_CALENDAR_ENTITY,
+    CONF_SCHEDULE_DAY_START,
+    CONF_SCHEDULE_WORKDAY_ENTITY,
+    DATA_FLOOR_SCHEDULES,
+    DATA_HOUSE_SCHEDULE,
+    DATA_SCHEDULE,
+    DEFAULT_SCHEDULE_DAY_START,
     CONF_COMFORT_ZONE,
     CONF_DEFAULT_PROFILE,
     CONF_DEVICE_ACTIVATE_OFFSET,
@@ -19,6 +27,8 @@ from .const import (
     CONF_DEVICE_EMERGENCY_ENABLED,
     CONF_DEVICE_ENTITY,
     CONF_DEVICE_HUMIDITY_HYSTERESIS,
+    CONF_DEVICE_MIN_OFF_MINUTES,
+    CONF_DEVICE_MIN_ON_MINUTES,
     CONF_DEVICE_HUMIDITY_THRESHOLD,
     CONF_DEVICE_FAN_MODE,
     CONF_DEVICE_HVAC_MODE_ON,
@@ -102,6 +112,8 @@ from .const import (
     DEFAULT_MANUAL_HOLD_HOURS,
     DEFAULT_MANUAL_HOLD_CONFIRM_SECONDS,
     DEFAULT_HUMIDITY_HYSTERESIS,
+    DEFAULT_MIN_OFF_MINUTES,
+    DEFAULT_MIN_ON_MINUTES,
     DEFAULT_HUMIDITY_THRESHOLD,
     DOMAIN,
     ENTRY_TYPE_GLOBAL,
@@ -530,7 +542,7 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
         # ── Room menu ───────────────────────────────────────────────────────
         return self.async_show_menu(
             step_id="init",
-            menu_options=["edit_settings", "edit_room_aggressiveness", "finish"],
+            menu_options=["edit_settings", "edit_room_aggressiveness", "edit_room_schedule", "finish"],
         )
 
     # ── Global defaults edit (shown instead of the room menu) ────────────────
@@ -544,8 +556,129 @@ class ClimateComfortOptionsFlow(config_entries.OptionsFlow):
                 "edit_global_modes",
                 "edit_global_profiles",
                 "edit_global_floors",
+                "edit_global_schedules",
                 "finish",
             ],
+        )
+
+    # ── Schedules ────────────────────────────────────────────────────────────
+
+    def _entry_data(self) -> dict:
+        return self.hass.data.get(DOMAIN, {}).get(self._config_entry.entry_id, {})
+
+    async def _schedule_form(self, step_id, controller, user_input, done):
+        """Edit one schedule as text, and switch it on or off.
+
+        Schedules are kept in storage, not in the entry, so saving one here
+        does not reload anything.
+        """
+        if controller is None:
+            return self.async_abort(reason="schedule_not_loaded")
+        errors: dict[str, str] = {}
+        placeholders = {
+            "name": controller.name,
+            "presets": ", ".join(controller.valid_presets()),
+            "error": "",
+        }
+        text = sched.to_text(controller.profiles)
+        enabled = controller.enabled
+        if user_input is not None:
+            text = user_input.get("schedule", "")
+            enabled = bool(user_input.get("enabled"))
+            try:
+                profiles = sched.parse_text(text)
+                sched.validate(profiles, controller.valid_presets())
+            except sched.ScheduleError as err:
+                errors["schedule"] = "invalid_schedule"
+                placeholders["error"] = str(err)
+            else:
+                await controller.async_set_profiles(profiles)
+                if enabled != controller.enabled:
+                    await controller.async_set_enabled(enabled)
+                return await done()
+        return self.async_show_form(
+            step_id=step_id,
+            data_schema=vol.Schema({
+                vol.Required("enabled", default=enabled): selector.BooleanSelector(),
+                vol.Required("schedule", default=text): selector.TextSelector(
+                    selector.TextSelectorConfig(multiline=True)
+                ),
+            }),
+            errors=errors,
+            description_placeholders=placeholders,
+        )
+
+    async def async_step_edit_room_schedule(self, user_input=None):
+        return await self._schedule_form(
+            "edit_room_schedule", self._entry_data().get(DATA_SCHEDULE),
+            user_input, self.async_step_init,
+        )
+
+    async def async_step_edit_global_schedules(self, user_input=None):
+        options = ["edit_schedule_sources", "edit_house_schedule"]
+        if self._entry_data().get(DATA_FLOOR_SCHEDULES):
+            options.append("edit_floor_schedule")
+        options.append("edit_global_defaults")
+        return self.async_show_menu(step_id="edit_global_schedules", menu_options=options)
+
+    async def async_step_edit_schedule_sources(self, user_input=None):
+        """Workday sensor, calendar and the start of the schedule day."""
+        cfg = self._config_entry.data
+        if user_input is not None:
+            data = {**cfg, **user_input}
+            for key in (CONF_SCHEDULE_WORKDAY_ENTITY, CONF_SCHEDULE_CALENDAR_ENTITY):
+                if not user_input.get(key):
+                    data.pop(key, None)
+            self.hass.config_entries.async_update_entry(self._config_entry, data=data)
+            return await self.async_step_edit_global_schedules()
+
+        def _entity(key, **config):
+            current = cfg.get(key)
+            marker = vol.Optional(key, description={"suggested_value": current}) if current else vol.Optional(key)
+            return marker, selector.EntitySelector(selector.EntitySelectorConfig(**config))
+
+        workday_key, workday_sel = _entity(
+            CONF_SCHEDULE_WORKDAY_ENTITY, domain="binary_sensor", integration="workday"
+        )
+        calendar_key, calendar_sel = _entity(CONF_SCHEDULE_CALENDAR_ENTITY, domain="calendar")
+        return self.async_show_form(
+            step_id="edit_schedule_sources",
+            data_schema=vol.Schema({
+                workday_key: workday_sel,
+                calendar_key: calendar_sel,
+                vol.Required(
+                    CONF_SCHEDULE_DAY_START,
+                    default=cfg.get(CONF_SCHEDULE_DAY_START, DEFAULT_SCHEDULE_DAY_START),
+                ): selector.TimeSelector(),
+            }),
+        )
+
+    async def async_step_edit_house_schedule(self, user_input=None):
+        return await self._schedule_form(
+            "edit_house_schedule", self._entry_data().get(DATA_HOUSE_SCHEDULE),
+            user_input, self.async_step_edit_global_schedules,
+        )
+
+    async def async_step_edit_floor_schedule(self, user_input=None):
+        """Pick the floor, then edit its schedule."""
+        floors = self._entry_data().get(DATA_FLOOR_SCHEDULES, {})
+        if user_input is not None and "floor" in user_input:
+            self._floor_name = user_input["floor"]
+            return await self.async_step_edit_floor_schedule_text()
+        return self.async_show_form(
+            step_id="edit_floor_schedule",
+            data_schema=vol.Schema({
+                vol.Required("floor"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=list(floors))
+                ),
+            }),
+        )
+
+    async def async_step_edit_floor_schedule_text(self, user_input=None):
+        floors = self._entry_data().get(DATA_FLOOR_SCHEDULES, {})
+        return await self._schedule_form(
+            "edit_floor_schedule_text", floors.get(getattr(self, "_floor_name", None)),
+            user_input, self.async_step_edit_global_schedules,
         )
 
     async def async_step_edit_global_general(self, user_input=None):
@@ -910,6 +1043,15 @@ class DeviceSubentryFlow(config_entries.ConfigSubentryFlow):
                 CONF_DEVICE_EMERGENCY_ENABLED,
                 default=bool(existing.get(CONF_DEVICE_EMERGENCY_ENABLED, False)),
             )] = selector.BooleanSelector()
+
+        # Every kind of device can be protected from short cycling.
+        for conf_key, default in (
+            (CONF_DEVICE_MIN_ON_MINUTES, DEFAULT_MIN_ON_MINUTES),
+            (CONF_DEVICE_MIN_OFF_MINUTES, DEFAULT_MIN_OFF_MINUTES),
+        ):
+            fields[vol.Required(
+                conf_key, default=float(existing.get(conf_key, default)),
+            )] = _num(0, 60, step=1, unit="min", mode=selector.NumberSelectorMode.BOX)
 
         if is_climate:
             default_mode = existing.get(

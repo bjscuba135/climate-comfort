@@ -96,6 +96,7 @@
         "menu_options": {
           "edit_settings": "Room settings",
           "edit_room_aggressiveness": "Room aggressiveness",
+          "edit_room_schedule": "Schedule",
           "finish": "Close"
         },
         "description": "Devices are added, changed and removed from the integration page, not here."
@@ -128,6 +129,7 @@
           "edit_global_modes": "Mode temperatures",
           "edit_global_profiles": "Aggressiveness profiles",
           "edit_global_floors": "Floor mode selectors",
+          "edit_global_schedules": "Schedules",
           "finish": "Close"
         }
       },
@@ -332,7 +334,80 @@
           "profile_aggressive_comfort_multiplier": "Lowest comfort-zone multiplier for fastest reaction.",
           "profile_aggressive_point_spacing": "Smallest staged activation spacing for fastest escalation."
         }
+      },
+      "edit_room_schedule": {
+        "title": "Room schedule",
+        "description": "The schedule of **{name}**. While it is on, this room takes its preset from here instead of House / Floor Mode, except that Away still applies. A preset changed by hand lasts until the next scheduled change. Easier to edit by dragging in the Climate Comfort card.",
+        "data": {
+          "enabled": "Use this schedule",
+          "schedule": "Schedule"
+        },
+        "data_description": {
+          "enabled": "Off: the schedule is kept but changes nothing.",
+          "schedule": "One profile per line: `name [days]: 00:00 preset, 06:30 preset, …`. Each time lasts until the next; if the first time is not 00:00 the day before carries on until it. Days: `all` (the default), `workdays`, `weekend`, or days like `mon, wed`. Add `(off)` after the days to keep a profile but not use it. Presets you can use: {presets}."
+        }
+      },
+      "edit_global_schedules": {
+        "title": "Global Defaults — Schedules",
+        "description": "Schedules change House Mode and Floor Mode by time of day. Rooms can also have their own schedule, under the room's Configure → Schedule.",
+        "menu_options": {
+          "edit_schedule_sources": "Workdays, calendar and start of day",
+          "edit_house_schedule": "House schedule",
+          "edit_floor_schedule": "Floor schedules",
+          "edit_global_defaults": "Back"
+        }
+      },
+      "edit_schedule_sources": {
+        "title": "Schedules — Workdays and calendar",
+        "description": "Shared by every schedule.",
+        "data": {
+          "schedule_workday_entity": "Workday sensor",
+          "schedule_calendar_entity": "Calendar",
+          "schedule_day_start": "Schedule day starts at"
+        },
+        "data_description": {
+          "schedule_workday_entity": "Optional. A sensor from the Workday integration: public holidays then use the weekend profile. Without one, Monday to Friday are workdays.",
+          "schedule_calendar_entity": "Optional. An event titled with a **profile name** (e.g. `weekend`) switches the whole day to that profile. An event titled with a **preset** (e.g. `away`, `eco`) sets that preset while the event lasts.",
+          "schedule_day_start": "When one schedule day hands over to the next. Leave at 00:00 unless you work nights: with 05:00, the small hours of Saturday still follow Friday's profile."
+        }
+      },
+      "edit_house_schedule": {
+        "title": "House schedule",
+        "description": "Changes **House Mode** by time of day, and so every floor and room following it. A floor or room with its own schedule keeps to that, but Away from House Mode still reaches it.",
+        "data": {
+          "enabled": "Use this schedule",
+          "schedule": "Schedule"
+        },
+        "data_description": {
+          "enabled": "Off: the schedule is kept but changes nothing.",
+          "schedule": "One profile per line: `name [days]: 00:00 preset, 06:30 preset, …`. Each time lasts until the next; if the first time is not 00:00 the day before carries on until it. Days: `all` (the default), `workdays`, `weekend`, or days like `mon, wed`. Add `(off)` after the days to keep a profile but not use it. Presets you can use: {presets}."
+        }
+      },
+      "edit_floor_schedule": {
+        "title": "Floor schedules",
+        "description": "Choose the floor whose schedule to edit.",
+        "data": {
+          "floor": "Floor"
+        }
+      },
+      "edit_floor_schedule_text": {
+        "title": "Floor schedule",
+        "description": "Changes the **{name}** mode selector by time of day. While it is on, the floor ignores House Mode except Away.",
+        "data": {
+          "enabled": "Use this schedule",
+          "schedule": "Schedule"
+        },
+        "data_description": {
+          "enabled": "Off: the schedule is kept but changes nothing.",
+          "schedule": "One profile per line: `name [days]: 00:00 preset, 06:30 preset, …`. Each time lasts until the next; if the first time is not 00:00 the day before carries on until it. Days: `all` (the default), `workdays`, `weekend`, or days like `mon, wed`. Add `(off)` after the days to keep a profile but not use it. Presets you can use: {presets}."
+        }
       }
+    },
+    "error": {
+      "invalid_schedule": "This schedule cannot be used: {error}"
+    },
+    "abort": {
+      "schedule_not_loaded": "The schedule is not available because this entry is not loaded. Enable or reload it first."
     }
   },
   "config_subentries": {
@@ -383,7 +458,9 @@
             "target_temp_offset": "Target overshoot (°C)",
             "fan_mode": "Fan speed when active",
             "swing_mode": "Vertical swing direction when active",
-            "swing_horizontal_mode": "Horizontal swing direction when active"
+            "swing_horizontal_mode": "Horizontal swing direction when active",
+            "min_on_minutes": "Minimum on time (minutes)",
+            "min_off_minutes": "Minimum off time (minutes)"
           },
           "data_description": {
             "activation_point": "Where this device joins in after the room leaves the comfort zone. Heating devices choose -5 to 0; cooling devices choose 0 to 5. The active profile controls how many degrees each point represents.",
@@ -396,7 +473,9 @@
             "target_temp_offset": "**Target overshoot:** an optional offset to ensure the device actually runs rather than sitting idle because its previous setpoint was already satisfied. **Heating devices** target *setpoint + offset* °C. **Cooling devices** target *setpoint − offset* °C. Set to 0 to target exactly the room setpoint.",
             "fan_mode": "**Fan speed:** optional. Applied when this device is switched on, after the HVAC mode above. The list comes from the device's own supported fan modes. Choose *Leave unchanged* to let the device keep whatever speed it was last set to.",
             "swing_mode": "**Vertical swing:** optional. The up/down louvre direction, applied when the device is switched on. The list comes from the device's own supported swing modes. Choose *Leave unchanged* to leave it alone.",
-            "swing_horizontal_mode": "**Horizontal swing:** optional. The left/right louvre direction. Home Assistant treats this as a separate setting from vertical swing, so a device may offer one, both or neither. Choose *Leave unchanged* to leave it alone."
+            "swing_horizontal_mode": "**Horizontal swing:** optional. The left/right louvre direction. Home Assistant treats this as a separate setting from vertical swing, so a device may offer one, both or neither. Choose *Leave unchanged* to leave it alone.",
+            "min_on_minutes": "**Minimum on time:** once switched on, the device keeps running at least this long, even if the room is already comfortable. Protects compressors (air conditioners, heat pumps, dehumidifiers) from short cycling. 0 = no limit. Turning the thermostat off still stops it at once.",
+            "min_off_minutes": "**Minimum off time:** once switched off, the device stays off at least this long before it may start again. Many compressors need 3 to 5 minutes for their pressures to settle. 0 = no limit."
           }
         }
       },
@@ -422,6 +501,50 @@
         "balanced": "Balanced",
         "responsive": "Responsive",
         "aggressive": "Aggressive"
+      }
+    }
+  },
+  "services": {
+    "set_schedule": {
+      "name": "Set schedule",
+      "description": "Replaces a schedule: of a room, of House Mode or of a Floor Mode selector.",
+      "fields": {
+        "entity_id": {
+          "name": "Schedule",
+          "description": "A room thermostat, a House / Floor Mode selector, or one of a schedule's own entities."
+        },
+        "schedule": {
+          "name": "Schedule as text",
+          "description": "One profile per line: name [days]: 00:00 preset, 06:30 preset."
+        },
+        "profiles": {
+          "name": "Profiles",
+          "description": "The schedule as a list of profiles instead of text (used by the card)."
+        },
+        "enable": {
+          "name": "Switch on",
+          "description": "Also switch the schedule on (true) or off (false)."
+        }
+      }
+    },
+    "resume_schedule": {
+      "name": "Resume schedule",
+      "description": "Ends a preset changed by hand, or the pause while Away, and applies the schedule now.",
+      "fields": {
+        "entity_id": {
+          "name": "Schedule",
+          "description": "A room thermostat, a House / Floor Mode selector, or one of a schedule's own entities."
+        }
+      }
+    },
+    "get_schedule": {
+      "name": "Get schedule",
+      "description": "Returns a schedule as text and as profiles, with its next change.",
+      "fields": {
+        "entity_id": {
+          "name": "Schedule",
+          "description": "A room thermostat, a House / Floor Mode selector, or one of a schedule's own entities."
+        }
       }
     }
   }
